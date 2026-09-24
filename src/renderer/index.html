@@ -3,107 +3,324 @@
 <head>
   <meta charset="UTF-8" />
   <meta http-equiv="Content-Security-Policy"
-        content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'" />
+        content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'" />
   <title>Forja Launcher</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <div class="app">
-    <aside class="sidebar">
+    <!-- ============ Sidebar ============ -->
+    <aside class="sidebar" aria-label="Profiles">
       <header class="brand">
-        <div class="logo" aria-hidden="true">F</div>
+        <img class="logo" src="../assets/icon.svg" alt="" width="40" height="40" />
         <div>
           <div class="brand-name" id="brandName">Forja Launcher</div>
           <div class="brand-sub" data-i18n="app.subtitle"></div>
         </div>
       </header>
 
-      <div class="section-title">
-        <span data-i18n="versions.title"></span>
-        <button class="icon-btn" id="refreshBtn" data-i18n-title="versions.refresh">⟳</button>
+      <div class="sidebar-head">
+        <span data-i18n="profiles.title"></span>
+        <span class="count" id="profileCount"></span>
       </div>
-      <input type="search" id="versionSearch" class="input" data-i18n-placeholder="versions.search" />
-      <div class="chips">
-        <label class="chip"><input type="checkbox" id="fRelease" checked /><span data-i18n="versions.release"></span></label>
-        <label class="chip"><input type="checkbox" id="fSnapshot" /><span data-i18n="versions.snapshot"></span></label>
-        <label class="chip"><input type="checkbox" id="fOld" /><span data-i18n="versions.old"></span></label>
+      <ul class="profile-list" id="profileList" role="listbox" aria-labelledby="profilesLabel" tabindex="-1"></ul>
+      <button class="btn new-profile" id="newProfileBtn">
+        <span data-ui-icon="plus"></span> <span data-i18n="profiles.new"></span>
+      </button>
+
+      <div class="account-mini">
+        <div class="account-row">
+          <span class="badge-test" data-i18n="account.offline"></span>
+        </div>
+        <label class="field compact">
+          <span data-i18n="account.username"></span>
+          <input id="username" class="input" maxlength="16" spellcheck="false" autocomplete="off" />
+          <small class="error hidden" id="usernameError" data-i18n="account.usernameInvalid"></small>
+        </label>
       </div>
-      <div class="notice hidden" id="versionsNotice"></div>
-      <ul class="version-list" id="versionList" role="listbox"></ul>
     </aside>
 
+    <!-- ============ Main ============ -->
     <main class="main">
-      <section class="cards">
-        <div class="card">
-          <h2 data-i18n="account.title"></h2>
-          <label class="field">
-            <span data-i18n="account.mode"></span>
-            <select id="authType" class="input">
-              <option value="offline" data-i18n="account.offline"></option>
-              <option value="microsoft" data-i18n="account.microsoft" disabled></option>
-            </select>
-          </label>
-          <label class="field">
-            <span data-i18n="account.username"></span>
-            <input id="username" class="input" maxlength="16" spellcheck="false" autocomplete="off" />
-            <small class="error hidden" id="usernameError" data-i18n="account.usernameInvalid"></small>
-          </label>
-          <p class="note" data-i18n="account.offlineNote"></p>
+      <nav class="tabs" role="tablist" aria-label="Sections">
+        <button role="tab" class="tab" id="tabBtn-profiles" aria-controls="tab-profiles" aria-selected="true" data-tab="profiles"><span data-i18n="tabs.profiles"></span></button>
+        <button role="tab" class="tab" id="tabBtn-settings" aria-controls="tab-settings" aria-selected="false" tabindex="-1" data-tab="settings"><span data-i18n="tabs.settings"></span></button>
+        <button role="tab" class="tab" id="tabBtn-log" aria-controls="tab-log" aria-selected="false" tabindex="-1" data-tab="log"><span data-i18n="tabs.log"></span><span class="tab-dot hidden" id="logDot"></span></button>
+        <div class="tabs-spacer"></div>
+        <div class="running-summary hidden" id="runningSummary"></div>
+      </nav>
+
+      <!-- Profiles tab -->
+      <section class="tab-panel active" id="tab-profiles" role="tabpanel" aria-labelledby="tabBtn-profiles">
+        <div class="hero" id="hero">
+          <div class="hero-bg" aria-hidden="true"></div>
+          <div class="hero-main">
+            <div class="hero-icon" id="heroIcon"></div>
+            <div class="hero-text">
+              <h1 class="hero-name" id="heroName">—</h1>
+              <div class="hero-meta">
+                <span class="pill" id="heroVersion"></span>
+                <span class="pill running hidden" id="heroRunning"></span>
+                <span class="muted" id="heroLastPlayed"></span>
+              </div>
+              <div class="hero-status" id="heroStatus" role="status" aria-live="polite"></div>
+            </div>
+            <div class="hero-actions">
+              <button class="btn primary play" id="playBtn"><span class="play-icon" aria-hidden="true">▶</span><span id="playLabel"></span></button>
+              <button class="btn danger hidden" id="cancelBtn" data-i18n="play.cancel"></button>
+              <button class="btn danger hidden" id="killBtn" data-i18n="play.kill"></button>
+            </div>
+          </div>
+          <div class="progress-wrap" id="progressWrap" aria-hidden="true">
+            <div class="progress-meta">
+              <span class="step" id="progressStep"></span>
+              <span id="progressFiles"></span>
+              <span id="progressMb"></span>
+              <span id="progressSpeed"></span>
+              <span id="progressEta"></span>
+            </div>
+            <div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" id="progressBarOuter"><div class="progress-bar" id="progressBar"></div></div>
+            <div class="progress-current" id="progressCurrent"></div>
+          </div>
         </div>
 
-        <div class="card">
-          <h2 data-i18n="settings.memory"></h2>
-          <div class="memory-row">
-            <input type="range" id="memory" min="512" max="8192" step="256" />
-            <output id="memoryValue" class="mem-value"></output>
-          </div>
-          <small class="hint" id="memoryHint"></small>
-          <label class="field inline">
-            <span data-i18n="settings.language"></span>
-            <select id="language" class="input small">
-              <option value="ru">Русский</option>
-              <option value="en">English</option>
-            </select>
-          </label>
-          <button class="btn ghost" id="openDirBtn" data-i18n="settings.openDir"></button>
+        <div class="action-row">
+          <button class="btn" id="editBtn"><span data-ui-icon="edit"></span> <span data-i18n="profile.edit"></span></button>
+          <button class="btn" id="duplicateBtn"><span data-ui-icon="copy"></span> <span data-i18n="profile.duplicate"></span></button>
+          <button class="btn" id="openFolderBtn"><span data-ui-icon="folder"></span> <span data-i18n="profile.openFolder"></span></button>
+          <button class="btn" id="repairBtn"><span data-ui-icon="wrench"></span> <span data-i18n="profile.repair"></span></button>
+          <div class="spacer"></div>
+          <button class="btn danger ghost" id="deleteBtn"><span data-ui-icon="trash"></span> <span data-i18n="profile.delete"></span></button>
         </div>
+
+        <div class="details">
+          <div class="detail"><div class="detail-label" data-i18n="profile.memory"></div><div class="detail-value" id="dMemory"></div></div>
+          <div class="detail"><div class="detail-label" data-i18n="profile.java"></div><div class="detail-value" id="dJava"></div></div>
+          <div class="detail"><div class="detail-label" data-i18n="profile.resolution"></div><div class="detail-value" id="dResolution"></div></div>
+          <div class="detail"><div class="detail-label" data-i18n="profile.jvmArgs"></div><div class="detail-value mono" id="dJvm"></div></div>
+          <div class="detail wide"><div class="detail-label" data-i18n="profile.gameDir"></div><div class="detail-value mono" id="dGameDir"></div></div>
+        </div>
+        <p class="note small" data-i18n="account.offlineNote"></p>
       </section>
 
-      <section class="play-card">
-        <div class="play-info">
-          <div class="muted" data-i18n="play.selected"></div>
-          <div class="selected-version" id="selectedVersion">—</div>
-          <div class="status" id="status"></div>
-        </div>
-        <div class="play-actions">
-          <button class="btn primary big" id="playBtn"></button>
-          <button class="btn danger hidden" id="cancelBtn" data-i18n="play.cancel"></button>
-          <button class="btn danger hidden" id="killBtn" data-i18n="play.kill"></button>
-        </div>
-        <div class="progress-wrap hidden" id="progressWrap">
-          <div class="progress-meta">
-            <span id="progressStep"></span>
-            <span id="progressFiles"></span>
-            <span id="progressMb"></span>
+      <!-- Settings tab -->
+      <section class="tab-panel" id="tab-settings" role="tabpanel" aria-labelledby="tabBtn-settings" hidden>
+        <div class="settings-grid">
+          <div class="card">
+            <h2 data-i18n="settings.general"></h2>
+            <label class="field inline">
+              <span data-i18n="settings.language"></span>
+              <select id="sLanguage" class="input small">
+                <option value="ru">Русский</option>
+                <option value="en">English</option>
+              </select>
+            </label>
+            <fieldset class="field">
+              <legend data-i18n="settings.onGameStart"></legend>
+              <label class="radio"><input type="radio" name="onGameStart" value="keep" /> <span data-i18n="settings.onStart.keep"></span></label>
+              <label class="radio"><input type="radio" name="onGameStart" value="hide" /> <span data-i18n="settings.onStart.hide"></span></label>
+              <label class="radio"><input type="radio" name="onGameStart" value="close" /> <span data-i18n="settings.onStart.close"></span></label>
+            </fieldset>
+            <div class="field">
+              <span class="label" data-i18n="settings.versionsDefault"></span>
+              <label class="check"><input type="checkbox" id="sShowSnapshots" /> <span data-i18n="settings.showSnapshots"></span></label>
+              <label class="check"><input type="checkbox" id="sShowOld" /> <span data-i18n="settings.showOld"></span></label>
+            </div>
           </div>
-          <div class="progress"><div class="progress-bar" id="progressBar"></div></div>
-          <div class="progress-current" id="progressCurrent"></div>
+
+          <div class="card">
+            <h2 data-i18n="settings.javaMemory"></h2>
+            <label class="field">
+              <span data-i18n="settings.defaultMemory"></span>
+              <div class="memory-row">
+                <input type="range" id="sMemory" min="512" max="8192" step="256" />
+                <output id="sMemoryValue" class="mem-value"></output>
+              </div>
+              <small class="hint" id="sMemoryHint"></small>
+            </label>
+            <div class="field">
+              <span class="label" data-i18n="settings.defaultJava"></span>
+              <label class="radio"><input type="radio" name="sJavaMode" value="auto" /> <span data-i18n="java.auto"></span></label>
+              <label class="radio"><input type="radio" name="sJavaMode" value="custom" /> <span data-i18n="java.custom"></span></label>
+              <div class="input-row">
+                <input id="sJavaPath" class="input mono" spellcheck="false" data-i18n-placeholder="java.pathPlaceholder" />
+                <button class="btn" id="sJavaBrowse" data-i18n="common.browse"></button>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <h2 data-i18n="settings.downloads"></h2>
+            <label class="field">
+              <span data-i18n="settings.concurrency"></span>
+              <div class="memory-row">
+                <input type="range" id="sConcurrency" min="1" max="32" step="1" />
+                <output id="sConcurrencyValue" class="mem-value"></output>
+              </div>
+              <small class="hint" data-i18n="settings.concurrencyHint"></small>
+            </label>
+            <div class="field">
+              <span class="label" data-i18n="settings.dataDir"></span>
+              <div class="input-row">
+                <input id="sDataDir" class="input mono" readonly />
+                <button class="btn" id="sOpenDataDir" data-i18n="common.open"></button>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <h2 data-i18n="settings.maintenance"></h2>
+            <p class="note" data-i18n="settings.repairNote"></p>
+            <div class="input-row">
+              <select id="sRepairProfile" class="input"></select>
+              <button class="btn" id="sRepairBtn" data-i18n="profile.repair"></button>
+            </div>
+          </div>
         </div>
+        <div class="saved-hint" id="savedHint" data-i18n="settings.saved" aria-live="polite"></div>
       </section>
 
-      <section class="log-card">
+      <!-- Log tab -->
+      <section class="tab-panel" id="tab-log" role="tabpanel" aria-labelledby="tabBtn-log" hidden>
         <div class="log-head">
-          <h2 data-i18n="log.title"></h2>
+          <label class="field inline compact">
+            <span data-i18n="log.source"></span>
+            <select id="logFilter" class="input small"></select>
+          </label>
           <div class="log-tools">
-            <label class="chip small"><input type="checkbox" id="autoscroll" checked /><span data-i18n="log.autoscroll"></span></label>
-            <button class="btn ghost small" id="copyLogBtn" data-i18n="log.copy"></button>
-            <button class="btn ghost small" id="clearLogBtn" data-i18n="log.clear"></button>
+            <label class="check small"><input type="checkbox" id="autoscroll" checked /> <span data-i18n="log.autoscroll"></span></label>
+            <button class="btn small" id="copyLogBtn" data-i18n="log.copy"></button>
+            <button class="btn small" id="clearLogBtn" data-i18n="log.clear"></button>
           </div>
         </div>
-        <pre class="log" id="log"></pre>
+        <pre class="log" id="log" tabindex="0"></pre>
       </section>
     </main>
   </div>
+
+  <!-- ============ Profile editor ============ -->
+  <div class="modal-backdrop" id="editModal" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="editTitle">
+      <header class="modal-head">
+        <h2 id="editTitle"></h2>
+        <button class="icon-btn" data-close aria-label="×">✕</button>
+      </header>
+      <form id="editForm" class="modal-body" novalidate>
+        <div class="edit-grid">
+          <div class="edit-col">
+            <label class="field">
+              <span data-i18n="profile.name"></span>
+              <input id="eName" class="input" maxlength="40" required />
+            </label>
+            <div class="field">
+              <span class="label" data-i18n="profile.icon"></span>
+              <div class="icon-preview-row">
+                <div class="hero-icon small" id="eIconPreview"></div>
+                <div class="icon-type">
+                  <label class="radio"><input type="radio" name="eIconType" value="preset" /> <span data-i18n="icon.preset"></span></label>
+                  <label class="radio"><input type="radio" name="eIconType" value="letter" /> <span data-i18n="icon.letter"></span></label>
+                  <input id="eLetter" class="input tiny" maxlength="1" aria-label="letter" />
+                </div>
+              </div>
+              <div class="icon-grid" id="eIconGrid" role="radiogroup"></div>
+              <div class="color-row" id="eColorRow" role="radiogroup"></div>
+            </div>
+            <div class="field">
+              <span class="label" data-i18n="profile.version"></span>
+              <div class="version-picker">
+                <input type="search" id="eVersionSearch" class="input" data-i18n-placeholder="versions.search" />
+                <div class="chips">
+                  <label class="chip"><input type="checkbox" id="eRelease" checked /><span data-i18n="versions.release"></span></label>
+                  <label class="chip"><input type="checkbox" id="eSnapshot" /><span data-i18n="versions.snapshot"></span></label>
+                  <label class="chip"><input type="checkbox" id="eOld" /><span data-i18n="versions.old"></span></label>
+                </div>
+                <select id="eVersion" class="input version-select" size="7" required></select>
+                <small class="hint" id="eVersionHint"></small>
+              </div>
+            </div>
+          </div>
+          <div class="edit-col">
+            <div class="field">
+              <span class="label" data-i18n="profile.memory"></span>
+              <label class="check"><input type="checkbox" id="eMemDefault" /> <span data-i18n="profile.useDefault"></span></label>
+              <div class="memory-row">
+                <input type="range" id="eMemory" min="512" max="8192" step="256" />
+                <output id="eMemoryValue" class="mem-value"></output>
+              </div>
+            </div>
+            <div class="field">
+              <span class="label" data-i18n="profile.resolution"></span>
+              <div class="input-row">
+                <input id="eWidth" class="input small-num" type="number" min="320" max="16384" data-i18n-placeholder="profile.width" />
+                <span class="muted">×</span>
+                <input id="eHeight" class="input small-num" type="number" min="240" max="16384" data-i18n-placeholder="profile.height" />
+                <label class="check"><input type="checkbox" id="eFullscreen" /> <span data-i18n="profile.fullscreen"></span></label>
+              </div>
+            </div>
+            <div class="field">
+              <span class="label" data-i18n="profile.java"></span>
+              <label class="radio"><input type="radio" name="eJavaMode" value="auto" /> <span data-i18n="java.autoProfile"></span></label>
+              <label class="radio"><input type="radio" name="eJavaMode" value="custom" /> <span data-i18n="java.custom"></span></label>
+              <div class="input-row">
+                <input id="eJavaPath" class="input mono" spellcheck="false" data-i18n-placeholder="java.pathPlaceholder" />
+                <button type="button" class="btn" id="eJavaBrowse" data-i18n="common.browse"></button>
+              </div>
+            </div>
+            <label class="field">
+              <span data-i18n="profile.jvmArgs"></span>
+              <textarea id="eJvmArgs" class="input mono" rows="3" spellcheck="false" placeholder="-XX:+UseG1GC -Dfile.encoding=UTF-8"></textarea>
+              <small class="hint" data-i18n="profile.jvmArgsHint"></small>
+            </label>
+          </div>
+        </div>
+        <small class="error hidden" id="eError" role="alert"></small>
+      </form>
+      <footer class="modal-foot">
+        <button class="btn ghost" data-close data-i18n="common.cancel"></button>
+        <button class="btn primary" id="eSave" data-i18n="common.save"></button>
+      </footer>
+    </div>
+  </div>
+
+  <!-- ============ Confirm dialog ============ -->
+  <div class="modal-backdrop" id="confirmModal" hidden>
+    <div class="modal narrow" role="alertdialog" aria-modal="true" aria-labelledby="confirmTitle" aria-describedby="confirmText">
+      <header class="modal-head"><h2 id="confirmTitle"></h2></header>
+      <div class="modal-body">
+        <p id="confirmText"></p>
+        <label class="check hidden" id="confirmCheckWrap"><input type="checkbox" id="confirmCheck" /> <span id="confirmCheckLabel"></span></label>
+      </div>
+      <footer class="modal-foot">
+        <button class="btn ghost" data-close data-i18n="common.cancel"></button>
+        <button class="btn danger" id="confirmOk"></button>
+      </footer>
+    </div>
+  </div>
+
+  <!-- ============ Crash dialog ============ -->
+  <div class="modal-backdrop" id="crashModal" hidden>
+    <div class="modal wide" role="alertdialog" aria-modal="true" aria-labelledby="crashTitle">
+      <header class="modal-head crash">
+        <h2 id="crashTitle"><span aria-hidden="true">⚠</span> <span data-i18n="crash.title"></span></h2>
+        <button class="icon-btn" data-close aria-label="×">✕</button>
+      </header>
+      <div class="modal-body">
+        <p id="crashSummary"></p>
+        <p class="hint" id="crashHint" data-i18n="crash.hint"></p>
+        <p class="mono small hidden" id="crashReport"></p>
+        <pre class="log crash-log" id="crashLog" tabindex="0"></pre>
+      </div>
+      <footer class="modal-foot">
+        <button class="btn" id="crashCopy" data-i18n="log.copy"></button>
+        <button class="btn" id="crashOpen" data-i18n="crash.openFolder"></button>
+        <button class="btn primary" data-close data-i18n="common.close"></button>
+      </footer>
+    </div>
+  </div>
+
+  <div class="toasts" id="toasts" aria-live="assertive" aria-atomic="false"></div>
+
+  <script src="icons.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

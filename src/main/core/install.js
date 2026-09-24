@@ -179,6 +179,7 @@ async function installVersion({
   onLog = () => {},
   concurrency = 12,
   ctx = currentContext(),
+  nativesDir = null, // where to extract natives (per-launch temp dir); null = skip
 }) {
   const log = onLog;
   const t0 = Date.now();
@@ -217,10 +218,11 @@ async function installVersion({
     }
   }
 
-  onProgress({ step: 'natives', doneFiles: 0, totalFiles: 1, doneBytes: 0, totalBytes: 0 });
-  const nativesDir = layout.nativesDir(version.id);
-  const nativesCount = await extractNatives(resolved, nativesDir);
-  log(`Нативные библиотеки: распаковано ${nativesCount} файлов`);
+  if (nativesDir) {
+    onProgress({ step: 'natives', doneFiles: 0, totalFiles: 1, doneBytes: 0, totalBytes: 0 });
+    const nativesCount = await extractNatives(resolved, nativesDir);
+    log(`Нативные библиотеки: распаковано ${nativesCount} файлов`);
+  }
 
   const assets = await installAssets({
     layout, version, gameDir, signal, concurrency, log,
@@ -233,6 +235,7 @@ async function installVersion({
     classpath,
     clientJar,
     nativesDir,
+    resolvedLibraries: resolved,
     assets,
     loggingConfig,
     stats: { libraries: libStats, assets: assets.stats, ms: Date.now() - t0 },

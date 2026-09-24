@@ -139,6 +139,35 @@ function buildLaunchCommand({
   return { command: javaPath, args, cwd: gameDir, vars };
 }
 
+/**
+ * Split a user-provided argument string respecting "double" and 'single'
+ * quotes, e.g. `-Dfoo="a b" -Xss2M` → ['-Dfoo=a b', '-Xss2M'].
+ */
+function parseArgString(str) {
+  const out = [];
+  let cur = '';
+  let quote = null;
+  let has = false;
+  for (const ch of String(str || '')) {
+    if (quote) {
+      if (ch === quote) quote = null;
+      else cur += ch;
+    } else if (ch === '"' || ch === "'") {
+      quote = ch;
+      has = true;
+    } else if (/\s/.test(ch)) {
+      if (has || cur) out.push(cur);
+      cur = '';
+      has = false;
+    } else {
+      cur += ch;
+      has = true;
+    }
+  }
+  if (has || cur) out.push(cur);
+  return out;
+}
+
 /** Hide the access token in logged command lines */
 function redactArgs(args, token) {
   return args.map((a) => (token && token.length > 4 && a.includes(token) ? a.split(token).join('***') : a));
@@ -148,17 +177,19 @@ function redactArgs(args, token) {
  * Spawn the game. Streams stdout/stderr as lines via onLog(line, stream).
  * @returns {{ child, exited: Promise<{code, signal}> }}
  */
-function launchGame(cmd, { onLog = () => {}, env = process.env, xmlLogs = false } = {}) {
+function launchGame(cmd, { onLog = () => {}, env = process.env, xmlLogs = false, detached = false } = {}) {
   fs.mkdirSync(cmd.cwd, { recursive: true });
   const child = spawn(cmd.command, cmd.args, {
     cwd: cmd.cwd,
     env,
     windowsHide: true,
+    detached, // lets the game outlive the launcher ("close on game start")
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   const wire = (stream, name) => {
     const parser = new Log4jXmlParser((line) => onLog(line, name), { enabled: xmlLogs });
     stream.setEncoding('utf8');
+    stream.on('error', () => {}); // EPIPE after launcher detaches
     stream.on('data', (d) => parser.feed(d));
     stream.on('end', () => parser.flush());
   };
@@ -178,4 +209,5 @@ module.exports = {
   buildLaunchCommand,
   launchGame,
   redactArgs,
+  parseArgString,
 };

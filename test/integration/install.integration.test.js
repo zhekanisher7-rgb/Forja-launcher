@@ -24,6 +24,7 @@ const { sha1File } = require('../../src/main/core/download');
 const { buildLaunchCommand } = require('../../src/main/core/launch');
 const { currentContext } = require('../../src/main/core/platform');
 const { createOfflineSession } = require('../../src/main/auth/offline');
+const { createNativesDir, cleanupNativesDir } = require('../../src/main/core/natives');
 
 const root = process.env.FORJA_IT_DIR || fs.mkdtempSync(path.join(os.tmpdir(), 'forja-it-'));
 const layout = createLayout(root);
@@ -58,7 +59,8 @@ for (const id of VERSIONS) {
     const ctx = currentContext();
     const gameDir = layout.instanceDir(`it-${id}`);
     const t0 = Date.now();
-    const inst = await installVersion({ layout, versionId: id, manifest, gameDir, ctx, concurrency: 16 });
+    const nativesDir = await createNativesDir(layout.nativesTmp, id); // per-launch dir
+    const inst = await installVersion({ layout, versionId: id, manifest, gameDir, ctx, concurrency: 16, nativesDir });
     const installMs = Date.now() - t0;
     const t1 = Date.now();
     const java = await ensureJava({ layout, version: inst.version });
@@ -114,6 +116,8 @@ for (const id of VERSIONS) {
       `  natives: ${natives.length} files; classpath: ${inst.classpath.length} entries`,
     ].join('\n');
     t.diagnostic(summary);
+    await cleanupNativesDir(nativesDir);
+    assert.ok(!fs.existsSync(nativesDir), 'natives dir cleaned up');
   });
 }
 

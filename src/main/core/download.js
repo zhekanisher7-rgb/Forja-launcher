@@ -119,6 +119,54 @@ async function downloadOnce(task, { signal, onBytes, stallTimeoutMs }) {
 }
 
 /**
+ * Sum of bytes still missing on disk (files absent or with wrong size).
+ * Cheap: only stat() calls.
+ */
+async function estimateMissingBytes(tasks) {
+  let missing = 0;
+  await Promise.all(tasks.map(async (t) => {
+    try {
+      const st = await fsp.stat(t.path);
+      if (t.size != null && st.size !== t.size) missing += t.size;
+    } catch {
+      missing += t.size || 0;
+    }
+  }));
+  return missing;
+}
+
+/** Free bytes on the filesystem containing `dir` (null if unknown). */
+async function freeDiskBytes(dir) {
+  if (typeof fsp.statfs !== 'function') return null;
+  let d = path.resolve(dir);
+  for (;;) {
+    try {
+      const st = await fsp.statfs(d);
+      return st.bavail * st.bsize;
+    } catch {
+      const parent = path.dirname(d);
+      if (parent === d) return null;
+      d = parent;
+    }
+  }
+}
+
+/** Throw ENOSPC early if the missing files will not fit (with 50 MB margin). */
+async function ensureDiskSpace(tasks, { margin = 50 * 1024 * 1024 } = {}) {
+  if (!tasks.length) return;
+  const needed = await estimateMissingBytes(tasks);
+  if (needed === 0) return;
+  const free = await freeDiskBytes(path.dirname(tasks[0].path));
+  if (free != null && free < needed + margin) {
+    const err = new Error(`Not enough disk space: need ${needed} bytes, free ${free}`);
+    err.code = 'ENOSPC';
+    err.neededBytes = needed;
+    err.freeBytes = free;
+    throw err;
+  }
+}
+
+/**
  * Download a list of tasks.
  * @returns {Promise<{downloaded:number, skipped:number, bytes:number, totalBytes:number, ms:number}>}
  */
@@ -130,6 +178,7 @@ async function downloadAll(tasks, {
   progressIntervalMs = 100,
   stallTimeoutMs = 30000,
   verifyExisting = true,
+  checkDiskSpace = true,
 } = {}) {
   const t0 = Date.now();
   // Deduplicate by destination path
@@ -143,13 +192,28 @@ async function downloadAll(tasks, {
     downloaded: 0,
     skipped: 0,
     current: null,
+    speedBps: 0,
+    etaSec: null,
   };
+  if (checkDiskSpace) await ensureDiskSpace(unique);
   let lastEmit = 0;
+  // speed: exponential moving average of network bytes/sec
+  let lastSampleT = Date.now();
+  let lastSampleBytes = 0;
   const emit = (force = false) => {
     if (!onProgress) return;
     const now = Date.now();
     if (!force && now - lastEmit < progressIntervalMs) return;
     lastEmit = now;
+    const dt = (now - lastSampleT) / 1000;
+    if (dt >= 0.5) {
+      const inst = (state.downloadedBytes - lastSampleBytes) / dt;
+      state.speedBps = state.speedBps ? state.speedBps * 0.7 + inst * 0.3 : inst;
+      lastSampleT = now;
+      lastSampleBytes = state.downloadedBytes;
+      const remaining = Math.max(0, state.totalBytes - state.doneBytes);
+      state.etaSec = state.speedBps > 1024 && remaining > 0 ? Math.round(remaining / state.speedBps) : null;
+    }
     onProgress({ ...state });
   };
   emit(true);
@@ -235,4 +299,4 @@ async function downloadAll(tasks, {
   };
 }
 
-module.exports = { downloadAll, isFileValid, sha1File, CancelledError };
+module.exports = { downloadAll, isFileValid, sha1File, CancelledError, ensureDiskSpace, estimateMissingBytes, freeDiskBytes };
