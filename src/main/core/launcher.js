@@ -10,6 +10,7 @@ const { buildLaunchCommand, launchGame, redactArgs } = require('./launch');
 const { currentContext } = require('./platform');
 const { createNativesDir, cleanupNativesDir, writeOwner } = require('./natives');
 const { CancelledError } = require('./download');
+const { ensureLoader } = require('./loaders');
 
 function nativesBase(layout) {
   return layout.nativesTmp || path.join(layout.root, 'tmp', 'natives');
@@ -17,7 +18,9 @@ function nativesBase(layout) {
 
 async function prepareAndLaunch({
   layout,
-  versionId,
+  versionId: mcVersionId,
+  loader = null, // { type, version } — null/vanilla = plain Minecraft
+  onLoaderResolved = () => {},
   session,
   manifest,
   gameDir = layout.instanceDir('default'),
@@ -34,20 +37,35 @@ async function prepareAndLaunch({
   onGameLog = (line) => onLog(line),
 }) {
   const ctx = currentContext();
+  const resolveJava = async (version) => {
+    if (!customJava) {
+      const java = await ensureJava({ layout, version, signal, onProgress, onLog, concurrency });
+      return java.javaPath;
+    }
+    const probe = await checkCustomJava(customJava);
+    const req = requiredJava(version);
+    onLog(`Своя Java: ${customJava} (major ${probe.major})`);
+    if (probe.major < req.majorVersion) {
+      onLog(`ВНИМАНИЕ: версии ${version.id} нужна Java ${req.majorVersion}+, выбрана ${probe.major}`);
+    }
+    return customJava;
+  };
+
+  let versionId = mcVersionId;
+  if (loader && loader.type && loader.type !== 'vanilla') {
+    const res = await ensureLoader({
+      layout, loader, mcVersion: mcVersionId, signal, onLog, onProgress, concurrency,
+      prepareVanilla: async () => {
+        const v = await installVersion({ layout, versionId: mcVersionId, manifest, gameDir, signal, onProgress, onLog, ctx, concurrency });
+        return { clientJar: v.clientJar, javaPath: await resolveJava(v.version) };
+      },
+    });
+    versionId = res.versionId;
+    onLoaderResolved(res);
+  }
   const inst = await installVersion({ layout, versionId, manifest, gameDir, signal, onProgress, onLog, ctx, concurrency });
 
-  let javaPath = customJava;
-  if (javaPath) {
-    const probe = await checkCustomJava(javaPath);
-    const req = requiredJava(inst.version);
-    onLog(`Своя Java: ${javaPath} (major ${probe.major})`);
-    if (probe.major < req.majorVersion) {
-      onLog(`ВНИМАНИЕ: версии ${inst.version.id} нужна Java ${req.majorVersion}+, выбрана ${probe.major}`);
-    }
-  } else {
-    const java = await ensureJava({ layout, version: inst.version, signal, onProgress, onLog, concurrency });
-    javaPath = java.javaPath;
-  }
+  const javaPath = await resolveJava(inst.version);
   if (signal && signal.aborted) throw new CancelledError();
 
   // Unique natives dir for this launch (avoids Windows file locks when the

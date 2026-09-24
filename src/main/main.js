@@ -14,6 +14,13 @@ const { sweepStaleNativesDirs } = require('./core/natives');
 const { repairVersion } = require('./core/repair');
 const { classifyError } = require('./core/errors');
 const { createSession, providers } = require('./auth');
+const { listLoaderVersions, ensureLoader, LoaderRegistry, LOADER_TYPES } = require('./core/loaders');
+const { ModrinthClient, primaryFile, loadersFor, CONTENT_TYPES } = require('./core/modrinth');
+const content = require('./core/content');
+const { installMrpack } = require('./core/mrpack');
+const storage = require('./core/storage');
+const { downloadAll } = require('./core/download');
+const os = require('node:os');
 
 const layout = createLayout();
 fs.mkdirSync(layout.root, { recursive: true });
@@ -21,6 +28,11 @@ const settings = new Settings(layout.settingsFile);
 const profiles = new ProfileStore(layout, { legacy: settings.legacy });
 const games = new GameManager({ launchFn: prepareAndLaunch });
 const repairs = new Map(); // profileId -> AbortController
+const modrinth = new ModrinthClient();
+const contentTasks = new Map(); // profileId -> AbortController (mod installs/updates)
+let modpackTask = null;
+let lastCleanupPlan = null;
+const coded = (code, msg = code) => Object.assign(new Error(msg), { code });
 let win = null;
 let hiddenForGame = false;
 
@@ -165,6 +177,15 @@ handle('game:launch', async (profileId) => {
     gameDir: profile.gameDir,
     launchOptions: {
       layout,
+      loader: profile.loader,
+      // "Latest stable" resolves once and is then pinned, so mods don't break on loader updates
+      onLoaderResolved: ({ loaderVersion }) => {
+        const cur = profiles.get(profileId);
+        if (cur && cur.loader && cur.loader.type !== 'vanilla' && !cur.loader.version && loaderVersion) {
+          profiles.update(profileId, { loader: { type: cur.loader.type, version: loaderVersion } });
+          send('profiles:changed', profiles.list());
+        }
+      },
       session,
       memory: { min: Math.min(512, maxMem), max: maxMem },
       resolution: profile.resolution,
@@ -190,9 +211,26 @@ handle('profile:repair', async (profileId) => {
   send('game:state', { profileId, state: 'repairing' });
   try {
     const s = settings.get();
+    let versionId = profile.versionId;
+    if (profile.loader && profile.loader.type !== 'vanilla') {
+      const { installVersion } = require('./core/install');
+      const { ensureJava } = require('./core/java');
+      const onLog = (line) => games.pushLog(profileId, line, 'launcher');
+      const res = await ensureLoader({
+        layout, loader: profile.loader, mcVersion: profile.versionId, signal: controller.signal, onLog, concurrency: s.concurrency,
+        onProgress: (p) => send('game:progress', { profileId, ...p }),
+        prepareVanilla: async () => {
+          const v = await installVersion({ layout, versionId: profile.versionId, gameDir: profile.gameDir, signal: controller.signal, onLog, concurrency: s.concurrency });
+          const javaPath = profile.java.mode === 'custom' ? profile.java.path
+            : (await ensureJava({ layout, version: v.version, signal: controller.signal, onLog, concurrency: s.concurrency })).javaPath;
+          return { clientJar: v.clientJar, javaPath };
+        },
+      });
+      versionId = res.versionId;
+    }
     const result = await repairVersion({
       layout,
-      versionId: profile.versionId,
+      versionId,
       gameDir: profile.gameDir,
       concurrency: s.concurrency,
       skipJava: profile.java.mode === 'custom',
@@ -208,6 +246,188 @@ handle('profile:repair', async (profileId) => {
   } finally {
     repairs.delete(profileId);
   }
+});
+
+// ---- mod loaders ----
+handle('loaders:versions', async (type, mcVersion) => {
+  if (!LOADER_TYPES.includes(type) || type === 'vanilla' || !mcVersion) return [];
+  const list = await listLoaderVersions(type, String(mcVersion));
+  return list.slice(0, 200);
+});
+
+// ---- Modrinth content ----
+function profileOr404(profileId) {
+  const p = profiles.get(profileId);
+  if (!p) throw coded('PROFILE_NOT_FOUND');
+  return p;
+}
+function checkType(type) {
+  if (!CONTENT_TYPES[type]) throw coded('UNSAFE_PATH', `bad type ${type}`);
+  return type;
+}
+const loaderOf = (p) => (p.loader && p.loader.type) || 'vanilla';
+
+handle('modrinth:search', async ({ query = '', type = 'mod', profileId, category = null, index = 'relevance', offset = 0, limit = 20, ignoreProfile = false } = {}) => {
+  const p = profileId ? profiles.get(profileId) : null;
+  const allowed = ['mod', 'resourcepack', 'shader', 'modpack'];
+  const t = allowed.includes(type) ? type : 'mod';
+  const res = await modrinth.search({
+    query: String(query).slice(0, 200), type: t, category, index, offset: Math.max(0, Number(offset) || 0), limit: Math.min(50, Number(limit) || 20),
+    gameVersion: p && !ignoreProfile && t !== 'modpack' ? p.versionId : undefined,
+    loader: p && !ignoreProfile && t === 'mod' ? loaderOf(p) : undefined,
+  });
+  return res;
+});
+handle('modrinth:categories', async () => (await modrinth.categories()) || []);
+handle('modrinth:project', async ({ id, profileId, type } = {}) => {
+  const p = profileId ? profiles.get(profileId) : null;
+  const project = await modrinth.project(id);
+  if (!project) throw coded('NO_COMPATIBLE_VERSION', 'project not found');
+  const t = project.project_type === 'shader' ? 'shader' : project.project_type;
+  const filterByProfile = p && t !== 'modpack';
+  const versions = await modrinth.projectVersions(id, filterByProfile
+    ? { loaders: loadersFor(type || t, loaderOf(p)), gameVersions: [p.versionId] } : {});
+  return { project, versions: (versions || []).slice(0, 30), filtered: Boolean(filterByProfile) };
+});
+handle('content:list', async (profileId, type, { identify = true } = {}) => {
+  const p = profileOr404(profileId);
+  const list = await content.listContent(p.gameDir, checkType(type));
+  if (!identify) return { items: list, offline: false };
+  try {
+    return { items: await content.identifyContent(modrinth, p.gameDir, list), offline: false };
+  } catch (err) {
+    return { items: list, offline: true, error: serializeError(err) };
+  }
+});
+handle('content:toggle', async (profileId, type, file, enabled) => content.setEnabled(profileOr404(profileId).gameDir, checkType(type), file, Boolean(enabled)));
+handle('content:remove', async (profileId, type, file) => content.removeContent(profileOr404(profileId).gameDir, checkType(type), file));
+handle('content:install', async (profileId, type, projectId, versionId = null) => {
+  const p = profileOr404(profileId);
+  if (contentTasks.has(profileId)) throw coded('ALREADY_RUNNING');
+  const controller = new AbortController();
+  contentTasks.set(profileId, controller);
+  try {
+    return await content.installProject(modrinth, {
+      gameDir: p.gameDir, type: checkType(type), projectId, versionId, loader: loaderOf(p), gameVersion: p.versionId, signal: controller.signal,
+      onLog: (line) => games.pushLog(profileId, line, 'launcher'),
+      onProgress: (pr) => send('content:progress', { profileId, ...pr }),
+    });
+  } finally {
+    contentTasks.delete(profileId);
+  }
+});
+handle('content:checkUpdates', async (profileId, type) => {
+  const p = profileOr404(profileId);
+  return content.checkUpdates(modrinth, p.gameDir, checkType(type), { loader: loaderOf(p), gameVersion: p.versionId });
+});
+handle('content:update', async (profileId, type, files = null) => {
+  const p = profileOr404(profileId);
+  if (contentTasks.has(profileId)) throw coded('ALREADY_RUNNING');
+  const controller = new AbortController();
+  contentTasks.set(profileId, controller);
+  try {
+    let updates = await content.checkUpdates(modrinth, p.gameDir, checkType(type), { loader: loaderOf(p), gameVersion: p.versionId, signal: controller.signal });
+    if (Array.isArray(files)) updates = updates.filter((u) => files.includes(u.file));
+    return await content.applyUpdates(modrinth, p.gameDir, type, updates, { signal: controller.signal, onLog: (line) => games.pushLog(profileId, line, 'launcher') });
+  } finally {
+    contentTasks.delete(profileId);
+  }
+});
+
+// ---- Modpacks (.mrpack) ----
+async function runModpackInstall(file, source) {
+  if (modpackTask) throw coded('ALREADY_RUNNING');
+  const controller = new AbortController();
+  modpackTask = controller;
+  try {
+    const s = settings.get();
+    const res = await installMrpack({
+      file, profiles, signal: controller.signal, concurrency: s.concurrency, source,
+      onProgress: (p) => send('modpack:progress', p),
+      onLog: (line) => send('modpack:progress', { log: line }),
+    });
+    send('profiles:changed', profiles.list());
+    return { profileId: res.profile.id, files: res.files, overrides: res.overrides, skipped: res.skipped.length };
+  } finally {
+    modpackTask = null;
+  }
+}
+handle('modpack:importFile', async () => {
+  const r = await dialog.showOpenDialog(win, { properties: ['openFile'], filters: [{ name: 'Modrinth modpack', extensions: ['mrpack'] }] });
+  if (r.canceled || !r.filePaths[0]) return null;
+  return runModpackInstall(r.filePaths[0], { type: 'file', name: path.basename(r.filePaths[0]) });
+});
+handle('modpack:installModrinth', async (projectId, versionId = null) => {
+  let version = versionId ? await modrinth.version(versionId) : null;
+  if (!version) {
+    const list = await modrinth.projectVersions(projectId, {});
+    version = (list || []).find((v) => v.version_type === 'release') || (list || [])[0];
+  }
+  if (!version) throw coded('NO_COMPATIBLE_VERSION');
+  const f = primaryFile(version);
+  if (!f || !/\.mrpack$/i.test(f.filename)) throw coded('MRPACK_INVALID', 'no .mrpack file');
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'forja-mrpack-'));
+  const file = path.join(tmpDir, 'pack.mrpack');
+  try {
+    await downloadAll([{ url: f.url, path: file, sha1: f.hashes && f.hashes.sha1, size: f.size }], {
+      onProgress: (p) => send('modpack:progress', { step: 'download', ...p }),
+    });
+    return await runModpackInstall(file, { type: 'modrinth', projectId, versionId: version.id });
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+handle('modpack:cancel', () => { if (modpackTask) modpackTask.abort(); return true; });
+
+// ---- Storage ----
+handle('storage:usage', () => storage.usage(layout));
+function busyVersions() {
+  const st = games.status();
+  return st.filter((g) => g.state !== 'exited');
+}
+handle('storage:plan', async () => {
+  const running = busyVersions();
+  const protect = new Set();
+  const registry = new LoaderRegistry(layout);
+  for (const g of running) {
+    const p = profiles.get(g.profileId);
+    if (p && p.versionId) protect.add(p.versionId);
+  }
+  const plan = await storage.planCleanup({ layout, profiles: profiles.list(), loaderEntries: registry.all(), protectVersions: protect });
+  lastCleanupPlan = { plan, at: Date.now() };
+  const summary = {};
+  for (const it of plan.items) {
+    summary[it.kind] = summary[it.kind] || { count: 0, bytes: 0 };
+    summary[it.kind].count++;
+    summary[it.kind].bytes += it.bytes;
+  }
+  return {
+    totalBytes: plan.totalBytes, count: plan.items.length, summary, skipped: plan.skipped,
+    versions: plan.items.filter((i) => i.kind === 'version').map((i) => ({ id: i.id, bytes: i.bytes })),
+    runtimes: plan.items.filter((i) => i.kind === 'runtime').map((i) => ({ id: i.id, bytes: i.bytes })),
+  };
+});
+handle('storage:clean', async () => {
+  if (busyVersions().length || repairs.size || modpackTask) throw coded('CLEANUP_BUSY');
+  if (!lastCleanupPlan || Date.now() - lastCleanupPlan.at > 10 * 60 * 1000) throw coded('CLEANUP_STALE');
+  // Re-plan right before deleting and only delete items present in both plans
+  const registry = new LoaderRegistry(layout);
+  const fresh = await storage.planCleanup({ layout, profiles: profiles.list(), loaderEntries: registry.all() });
+  const approved = new Set(lastCleanupPlan.plan.items.map((i) => i.path));
+  const plan = { ...fresh, items: fresh.items.filter((i) => approved.has(i.path)) };
+  // Drop registry entries of deleted loader versions
+  const deletedVersions = new Set(plan.items.filter((i) => i.kind === 'version').map((i) => i.id));
+  for (const e of registry.all()) if (deletedVersions.has(e.versionId)) registry.remove(e.key);
+  const res = await storage.executeCleanup(layout, plan);
+  lastCleanupPlan = null;
+  return res;
+});
+
+handle('shell:openModrinth', (slugOrId, type = 'mod') => {
+  const safe = String(slugOrId || '').replace(/[^a-zA-Z0-9_-]/g, '');
+  const t = ['mod', 'resourcepack', 'shader', 'modpack'].includes(type) ? type : 'mod';
+  if (!safe) return false;
+  return shell.openExternal(`https://modrinth.com/${t}/${safe}`);
 });
 
 handle('shell:openDataDir', () => shell.openPath(layout.root));

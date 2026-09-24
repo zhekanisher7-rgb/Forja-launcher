@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta http-equiv="Content-Security-Policy"
-        content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'" />
+        content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https://cdn.modrinth.com; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'" />
   <title>Forja Launcher</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
@@ -24,9 +24,14 @@
         <span class="count" id="profileCount"></span>
       </div>
       <ul class="profile-list" id="profileList" role="listbox" aria-labelledby="profilesLabel" tabindex="-1"></ul>
-      <button class="btn new-profile" id="newProfileBtn">
-        <span data-ui-icon="plus"></span> <span data-i18n="profiles.new"></span>
-      </button>
+      <div class="sidebar-buttons">
+        <button class="btn new-profile" id="newProfileBtn">
+          <span data-ui-icon="plus"></span> <span data-i18n="profiles.new"></span>
+        </button>
+        <button class="btn ghost small" id="importMrpackBtn" data-i18n-title="modpack.importTitle">
+          <span data-ui-icon="package"></span> <span data-i18n="modpack.import"></span>
+        </button>
+      </div>
 
       <div class="account-mini">
         <div class="account-row">
@@ -44,6 +49,7 @@
     <main class="main">
       <nav class="tabs" role="tablist" aria-label="Sections">
         <button role="tab" class="tab" id="tabBtn-profiles" aria-controls="tab-profiles" aria-selected="true" data-tab="profiles"><span data-i18n="tabs.profiles"></span></button>
+        <button role="tab" class="tab" id="tabBtn-mods" aria-controls="tab-mods" aria-selected="false" tabindex="-1" data-tab="mods"><span data-i18n="tabs.mods"></span></button>
         <button role="tab" class="tab" id="tabBtn-settings" aria-controls="tab-settings" aria-selected="false" tabindex="-1" data-tab="settings"><span data-i18n="tabs.settings"></span></button>
         <button role="tab" class="tab" id="tabBtn-log" aria-controls="tab-log" aria-selected="false" tabindex="-1" data-tab="log"><span data-i18n="tabs.log"></span><span class="tab-dot hidden" id="logDot"></span></button>
         <div class="tabs-spacer"></div>
@@ -60,6 +66,7 @@
               <h1 class="hero-name" id="heroName">—</h1>
               <div class="hero-meta">
                 <span class="pill" id="heroVersion"></span>
+                <span class="pill loader hidden" id="heroLoader"></span>
                 <span class="pill running hidden" id="heroRunning"></span>
                 <span class="muted" id="heroLastPlayed"></span>
               </div>
@@ -94,6 +101,7 @@
         </div>
 
         <div class="details">
+          <div class="detail"><div class="detail-label" data-i18n="profile.loader"></div><div class="detail-value" id="dLoader"></div></div>
           <div class="detail"><div class="detail-label" data-i18n="profile.memory"></div><div class="detail-value" id="dMemory"></div></div>
           <div class="detail"><div class="detail-label" data-i18n="profile.java"></div><div class="detail-value" id="dJava"></div></div>
           <div class="detail"><div class="detail-label" data-i18n="profile.resolution"></div><div class="detail-value" id="dResolution"></div></div>
@@ -101,6 +109,59 @@
           <div class="detail wide"><div class="detail-label" data-i18n="profile.gameDir"></div><div class="detail-value mono" id="dGameDir"></div></div>
         </div>
         <p class="note small" data-i18n="account.offlineNote"></p>
+      </section>
+
+      <!-- Mods tab -->
+      <section class="tab-panel" id="tab-mods" role="tabpanel" aria-labelledby="tabBtn-mods" hidden>
+        <div class="mods-head">
+          <div class="seg" id="modsType" role="radiogroup">
+            <button class="seg-btn" role="radio" data-type="mod" data-i18n="mods.type.mod"></button>
+            <button class="seg-btn" role="radio" data-type="resourcepack" data-i18n="mods.type.resourcepack"></button>
+            <button class="seg-btn" role="radio" data-type="shader" data-i18n="mods.type.shader"></button>
+            <button class="seg-btn" role="radio" data-type="modpack" data-i18n="mods.type.modpack"></button>
+          </div>
+          <div class="seg" id="modsView" role="radiogroup">
+            <button class="seg-btn" role="radio" data-view="installed" data-i18n="mods.view.installed"></button>
+            <button class="seg-btn" role="radio" data-view="search" data-i18n="mods.view.search"></button>
+          </div>
+          <div class="spacer"></div>
+          <div class="mods-profile" id="modsProfile"></div>
+        </div>
+        <div class="mods-warning hidden" id="modsWarning"></div>
+
+        <div id="modsInstalled" class="mods-pane">
+          <div class="toolbar">
+            <input type="search" id="installedFilter" class="input grow" data-i18n-placeholder="mods.filter" />
+            <button class="btn" id="checkUpdatesBtn"><span data-ui-icon="refresh"></span> <span data-i18n="mods.checkUpdates"></span></button>
+            <button class="btn primary hidden" id="updateAllBtn"></button>
+            <button class="btn" id="openContentFolderBtn"><span data-ui-icon="folder"></span> <span data-i18n="mods.openFolder"></span></button>
+          </div>
+          <div class="content-summary muted small" id="contentSummary"></div>
+          <ul class="content-list" id="contentList" aria-live="polite"></ul>
+          <div class="empty hidden" id="contentEmpty"></div>
+        </div>
+
+        <div id="modsSearch" class="mods-pane" hidden>
+          <div class="toolbar">
+            <input type="search" id="searchQuery" class="input grow" data-i18n-placeholder="mods.searchPlaceholder" />
+            <select id="searchCategory" class="input small" aria-label="category"></select>
+            <select id="searchSort" class="input small" aria-label="sort">
+              <option value="relevance" data-i18n="mods.sort.relevance"></option>
+              <option value="downloads" data-i18n="mods.sort.downloads"></option>
+              <option value="follows" data-i18n="mods.sort.follows"></option>
+              <option value="newest" data-i18n="mods.sort.newest"></option>
+              <option value="updated" data-i18n="mods.sort.updated"></option>
+            </select>
+          </div>
+          <div class="search-filter muted small" id="searchFilterInfo"></div>
+          <div class="results" id="searchResults" aria-live="polite"></div>
+          <div class="pager">
+            <button class="btn small" id="prevPage" data-i18n="mods.prev"></button>
+            <span class="muted small" id="pageInfo"></span>
+            <button class="btn small" id="nextPage" data-i18n="mods.next"></button>
+          </div>
+          <p class="note small" data-i18n="mods.modrinthNote"></p>
+        </div>
       </section>
 
       <!-- Settings tab -->
@@ -176,6 +237,17 @@
               <button class="btn" id="sRepairBtn" data-i18n="profile.repair"></button>
             </div>
           </div>
+          <div class="card span2" id="storageCard">
+            <h2 data-i18n="storage.title"></h2>
+            <div class="storage-bars" id="storageBars"></div>
+            <div class="storage-total" id="storageTotal"></div>
+            <div class="input-row">
+              <button class="btn" id="storageRefresh"><span data-ui-icon="refresh"></span> <span data-i18n="storage.refresh"></span></button>
+              <button class="btn" id="storageScan"><span data-ui-icon="search"></span> <span data-i18n="storage.scan"></span></button>
+            </div>
+            <div class="storage-plan hidden" id="storagePlan"></div>
+            <p class="note small" data-i18n="storage.note"></p>
+          </div>
         </div>
         <div class="saved-hint" id="savedHint" data-i18n="settings.saved" aria-live="polite"></div>
       </section>
@@ -240,6 +312,20 @@
             </div>
           </div>
           <div class="edit-col">
+            <div class="field">
+              <span class="label" data-i18n="profile.loader"></span>
+              <div class="input-row">
+                <select id="eLoader" class="input" aria-label="loader">
+                  <option value="vanilla" data-i18n="loader.vanilla"></option>
+                  <option value="fabric">Fabric</option>
+                  <option value="quilt">Quilt</option>
+                  <option value="forge">Forge</option>
+                  <option value="neoforge">NeoForge</option>
+                </select>
+                <select id="eLoaderVersion" class="input" aria-label="loader version"></select>
+              </div>
+              <small class="hint" id="eLoaderHint"></small>
+            </div>
             <div class="field">
               <span class="label" data-i18n="profile.memory"></span>
               <label class="check"><input type="checkbox" id="eMemDefault" /> <span data-i18n="profile.useDefault"></span></label>
@@ -318,9 +404,42 @@
     </div>
   </div>
 
+  <!-- ============ Modrinth project page ============ -->
+  <div class="modal-backdrop" id="projectModal" hidden>
+    <div class="modal wide" role="dialog" aria-modal="true" aria-labelledby="pTitle">
+      <header class="modal-head project-head">
+        <img class="project-icon" id="pIcon" alt="" width="56" height="56" />
+        <div class="project-title">
+          <h2 id="pTitle"></h2>
+          <div class="muted small" id="pMeta"></div>
+        </div>
+        <button class="icon-btn" data-close aria-label="×">✕</button>
+      </header>
+      <div class="modal-body project-body">
+        <p class="project-desc" id="pDesc"></p>
+        <div class="tags" id="pTags"></div>
+        <div class="project-cols">
+          <div class="project-text" id="pBody" tabindex="0"></div>
+          <div class="project-versions">
+            <h3 data-i18n="project.versions"></h3>
+            <small class="hint" id="pVersionsHint"></small>
+            <ul class="version-list" id="pVersions" role="listbox"></ul>
+          </div>
+        </div>
+      </div>
+      <footer class="modal-foot">
+        <button class="btn" id="pOpenWeb"><span data-ui-icon="external"></span> <span data-i18n="project.openWeb"></span></button>
+        <div class="spacer"></div>
+        <span class="muted small" id="pInstallInfo"></span>
+        <button class="btn primary" id="pInstall"></button>
+      </footer>
+    </div>
+  </div>
+
   <div class="toasts" id="toasts" aria-live="assertive" aria-atomic="false"></div>
 
   <script src="icons.js"></script>
   <script src="app.js"></script>
+  <script src="mods.js"></script>
 </body>
 </html>

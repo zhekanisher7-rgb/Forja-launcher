@@ -3,6 +3,7 @@
 /**
  * Headless (no Electron) install + launch using core modules only.
  * Usage: node scripts/headless-launch.js <version> [username] [--data DIR] [--game-dir DIR] [--timeout SEC]
+ *        [--loader fabric|quilt|forge|neoforge[:loaderVersion]]
  * Env: DISPLAY, LIBGL_ALWAYS_SOFTWARE=1 recommended on GPU-less boxes.
  */
 const path = require('node:path');
@@ -21,6 +22,8 @@ const opt = (name, def) => {
 const dataDir = opt('--data', getDataDir());
 const timeout = Number(opt('--timeout', '0'));
 const gameDirOpt = opt('--game-dir', null);
+const loaderOpt = opt('--loader', null);
+const loader = loaderOpt ? { type: loaderOpt.split(':')[0], version: loaderOpt.split(':').slice(1).join(':') || null } : null;
 const versionId = argv[0] || '1.20.1';
 const username = argv[1] || 'ForjaTester';
 
@@ -31,6 +34,7 @@ const username = argv[1] || 'ForjaTester';
   const { child, exited } = await prepareAndLaunch({
     layout,
     versionId,
+    loader,
     session,
     ...(gameDirOpt ? { gameDir: path.resolve(gameDirOpt) } : {}),
     memory: { min: 512, max: 2048 },

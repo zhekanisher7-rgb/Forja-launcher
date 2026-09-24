@@ -111,18 +111,21 @@ function buildLaunchCommand({
     resolution_height: resolution && resolution.height,
   };
 
-  const jvmTemplate = version.arguments && version.arguments.jvm
-    ? evaluateArguments(version.arguments.jvm, fctx)
-    : legacyJvmArgs(fctx);
+  // Legacy base (minecraftArguments) may be combined with a modern loader child
+  // that adds `arguments` (e.g. Fabric on 1.12.2): legacy args first, then extras.
+  const legacyBase = Boolean(version.minecraftArguments) || !(version.arguments && version.arguments.jvm);
+  const extraJvm = version.arguments && version.arguments.jvm ? evaluateArguments(version.arguments.jvm, fctx) : [];
+  const jvmTemplate = legacyBase ? [...legacyJvmArgs(fctx), ...(version.minecraftArguments ? extraJvm : [])] : extraJvm;
 
   let gameTemplate;
-  if (version.arguments && version.arguments.game) {
-    gameTemplate = evaluateArguments(version.arguments.game, fctx);
-  } else {
-    gameTemplate = String(version.minecraftArguments || '').split(/\s+/).filter(Boolean);
+  if (version.minecraftArguments) {
+    gameTemplate = String(version.minecraftArguments).split(/\s+/).filter(Boolean);
+    if (version.arguments && version.arguments.game) gameTemplate.push(...evaluateArguments(version.arguments.game, fctx));
     if (features.has_custom_resolution) {
       gameTemplate.push('--width', '${resolution_width}', '--height', '${resolution_height}');
     }
+  } else {
+    gameTemplate = evaluateArguments((version.arguments && version.arguments.game) || [], fctx);
   }
 
   const args = [];

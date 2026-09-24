@@ -12,26 +12,22 @@ const { downloadAll, isFileValid, CancelledError } = require('./download');
 const { resolveLibraries } = require('./library');
 const { currentContext } = require('./platform');
 const { findVersion, fetchManifest } = require('./versions');
+const { mergeVersions } = require('./loaders/inherit');
 
 const NATIVE_EXT = /\.(so|dll|dylib|jnilib)$/i;
 
-function mergeVersions(parent, child) {
-  const merged = { ...parent, ...child };
-  merged.libraries = [...(child.libraries || []), ...(parent.libraries || [])];
-  if (parent.arguments || child.arguments) {
-    merged.arguments = {
-      game: [...((parent.arguments && parent.arguments.game) || []), ...((child.arguments && child.arguments.game) || [])],
-      jvm: [...((parent.arguments && parent.arguments.jvm) || []), ...((child.arguments && child.arguments.jvm) || [])],
-    };
+async function linkOrCopy(src, dest) {
+  try {
+    const [a, b] = await Promise.all([fsp.stat(src), fsp.stat(dest).catch(() => null)]);
+    if (b && b.size === a.size && b.mtimeMs >= a.mtimeMs) return;
+  } catch { /* src missing → copy throws below */ }
+  await fsp.mkdir(path.dirname(dest), { recursive: true });
+  await fsp.rm(dest, { force: true });
+  try {
+    await fsp.link(src, dest);
+  } catch {
+    await fsp.copyFile(src, dest);
   }
-  merged.downloads = child.downloads || parent.downloads;
-  merged.assetIndex = child.assetIndex || parent.assetIndex;
-  merged.assets = child.assets || parent.assets;
-  merged.javaVersion = child.javaVersion || parent.javaVersion;
-  merged.logging = child.logging || parent.logging;
-  merged._jarId = child.jar || parent._jarId || parent.id;
-  delete merged.inheritsFrom;
-  return merged;
 }
 
 /**
@@ -229,11 +225,19 @@ async function installVersion({
     onProgress: (p) => onProgress({ step: 'assets', ...p }),
   });
 
-  const classpath = [...classpathLibraries(resolved), clientJar];
+  // Loader versions (inheritsFrom) run from versions/<id>/<id>.jar like the official
+  // launcher does; Forge's module ignoreList relies on ${version_name}.jar.
+  let runJar = clientJar;
+  if (version._inherited && version._jarId !== version.id) {
+    runJar = layout.versionJar(version.id);
+    await linkOrCopy(clientJar, runJar);
+  }
+  const classpath = [...classpathLibraries(resolved), runJar];
   return {
     version,
     classpath,
-    clientJar,
+    clientJar: runJar,
+    vanillaJar: clientJar,
     nativesDir,
     resolvedLibraries: resolved,
     assets,

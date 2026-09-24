@@ -16,7 +16,7 @@ test('ru.json and en.json have identical keys and placeholders', () => {
 
 test('every i18n key used by the renderer exists', () => {
   const html = fs.readFileSync(path.join(dir, 'index.html'), 'utf8');
-  const js = fs.readFileSync(path.join(dir, 'app.js'), 'utf8');
+  const js = ['app.js', 'mods.js'].map((f) => fs.readFileSync(path.join(dir, f), 'utf8')).join('\n');
   const used = new Set();
   for (const m of html.matchAll(/data-i18n(?:-placeholder|-title)?="([^"]+)"/g)) used.add(m[1]);
   for (const m of js.matchAll(/\bt\('([a-zA-Z0-9_.]+)'/g)) used.add(m[1]);
@@ -24,7 +24,11 @@ test('every i18n key used by the renderer exists', () => {
   assert.deepEqual(missing, []);
   // dynamic keys
   for (const code of ['network', 'disk', 'permission', 'javaNotFound', 'checksum', 'unknown', 'alreadyRunning']) assert.ok(`error.${code}` in ru);
-  for (const s of ['version', 'libraries', 'natives', 'assets', 'java', 'launch']) assert.ok(`step.${s}` in ru);
+  for (const s of ['version', 'libraries', 'natives', 'assets', 'java', 'launch', 'loader', 'processors']) assert.ok(`step.${s}` in ru, `step.${s}`);
+  for (const k of ['mod', 'resourcepack', 'shader', 'modpack']) assert.ok(`mods.type.${k}` in ru && `mods.empty.${k === 'modpack' ? 'mod' : k}` in ru);
+  for (const k of ['versions', 'libraries', 'assets', 'runtime', 'instances']) assert.ok(`storage.${k}` in ru, `storage.${k}`);
+  for (const k of ['version', 'library', 'runtime', 'assetIndex', 'asset']) assert.ok(`storage.kind.${k}` in ru, `storage.kind.${k}`);
+  for (const k of ['release', 'beta', 'alpha']) assert.ok(`project.vt.${k}` in ru, `project.vt.${k}`);
   for (const i of require('../../src/main/core/profiles').ICON_PRESETS) assert.ok(`icon.${i}` in ru, `icon.${i}`);
 });
 

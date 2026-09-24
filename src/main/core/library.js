@@ -76,11 +76,13 @@ function resolveLibrary(lib, ctx, librariesDir) {
   const dlArtifact = lib.downloads && lib.downloads.artifact;
   if (dlArtifact) {
     const rel = dlArtifact.path || mavenPath(lib.name);
+    // Forge-style empty url: the file is produced locally (installer/processors);
+    // keep it on the classpath, install checks that it exists.
     artifact = toDownload(rel, dlArtifact);
-    if (!artifact.url) artifact = null; // e.g. forge-style empty url: locally provided
   } else if (!lib.natives) {
     const rel = mavenPath(lib.name);
-    artifact = toDownload(rel, { url: baseUrl + rel });
+    // Maven-style entry (Fabric/Quilt/legacy Forge): optional top-level sha1/size
+    artifact = toDownload(rel, { url: baseUrl + rel, sha1: lib.sha1, size: lib.size });
   }
 
   // Legacy natives (classifiers map)

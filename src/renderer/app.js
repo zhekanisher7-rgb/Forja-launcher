@@ -126,7 +126,7 @@
     const top = modalStack[modalStack.length - 1];
     if (!top) {
       // global shortcuts: Ctrl+1/2/3 switch tabs, Ctrl+N new profile
-      if (e.ctrlKey && ['1', '2', '3'].includes(e.key)) { selectTab(['profiles', 'settings', 'log'][Number(e.key) - 1], true); e.preventDefault(); }
+      if (e.ctrlKey && ['1', '2', '3', '4'].includes(e.key)) { selectTab(TABS[Number(e.key) - 1], true); e.preventDefault(); }
       if (e.ctrlKey && e.key.toLowerCase() === 'n') { openEditor(null); e.preventDefault(); }
       return;
     }
@@ -168,6 +168,7 @@
   }
 
   // ------------------------------------------------------------ tabs
+  const TABS = ['profiles', 'mods', 'settings', 'log'];
   function selectTab(name, focus = false) {
     state.tab = name;
     document.querySelectorAll('.tab').forEach((b) => {
@@ -182,14 +183,14 @@
       p.classList.toggle('active', on);
     });
     if (name === 'log') { $('logDot').classList.add('hidden'); renderLog(); }
-    if (name === 'settings') renderSettings();
+    if (name === 'settings') { renderSettings(); refreshStorage(); }
+    if (name === 'mods' && window.ForjaMods) window.ForjaMods.show();
   }
   document.querySelectorAll('.tab').forEach((b) => b.addEventListener('click', () => selectTab(b.dataset.tab)));
   document.querySelector('.tabs').addEventListener('keydown', (e) => {
-    const tabs = ['profiles', 'settings', 'log'];
-    const i = tabs.indexOf(state.tab);
-    if (e.key === 'ArrowRight') { selectTab(tabs[(i + 1) % 3], true); e.preventDefault(); }
-    if (e.key === 'ArrowLeft') { selectTab(tabs[(i + 2) % 3], true); e.preventDefault(); }
+    const i = TABS.indexOf(state.tab);
+    if (e.key === 'ArrowRight') { selectTab(TABS[(i + 1) % TABS.length], true); e.preventDefault(); }
+    if (e.key === 'ArrowLeft') { selectTab(TABS[(i + TABS.length - 1) % TABS.length], true); e.preventDefault(); }
   });
 
   // ------------------------------------------------------------ sidebar
@@ -273,10 +274,19 @@
     api('setSettings', { selectedProfileId: id }).then((s) => { state.settings = s; }).catch(() => {});
     renderProfileList();
     renderHero();
-    if (state.tab !== 'profiles') selectTab('profiles');
+    if (state.tab === 'mods' && window.ForjaMods) window.ForjaMods.show();
+    else if (state.tab !== 'profiles') selectTab('profiles');
   }
 
   // ------------------------------------------------------------ hero
+  const LOADER_NAMES = { fabric: 'Fabric', quilt: 'Quilt', forge: 'Forge', neoforge: 'NeoForge' };
+  function loaderLabel(l) {
+    if (!l || l.type === 'vanilla') return t('loader.vanilla');
+    const name = LOADER_NAMES[l.type] || l.type;
+    if (!('version' in l)) return name; // name only (filters, hints)
+    return `${name} ${l.version || t('loader.latestStable')}`;
+  }
+
   function progressRatio(p) {
     if (!p) return 0;
     if (p.totalBytes) return Math.min(1, p.doneBytes / p.totalBytes);
@@ -295,6 +305,10 @@
     $('heroName').textContent = p.name;
     $('heroVersion').textContent = p.versionId ? `Minecraft ${p.versionId}` : t('profile.noVersion');
     $('heroLastPlayed').textContent = relTime(p.lastPlayed);
+    const hasLoader = p.loader && p.loader.type !== 'vanilla';
+    $('heroLoader').classList.toggle('hidden', !hasLoader);
+    $('heroLoader').textContent = hasLoader ? loaderLabel(p.loader) : '';
+    $('dLoader').textContent = loaderLabel(p.loader) + (p.modpack ? ` · ${t('modpack.badge')}: ${p.modpack.name}${p.modpack.versionId ? ` ${p.modpack.versionId}` : ''}` : '');
     $('heroRunning').classList.toggle('hidden', g.state !== 'running');
     $('heroRunning').textContent = g.pid ? t('badge.runningPid', { pid: g.pid }) : t('badge.running');
 
@@ -472,13 +486,73 @@
     $('eSnapshot').checked = s.showSnapshots || Boolean(selType && /w|pre|rc|snapshot/.test(sel));
     $('eOld').checked = s.showOld || /^[ab]\d/.test(sel);
     editor.selectedVersion = sel;
+    editor.loader = { ...(base.loader || { type: 'vanilla', version: null }) };
+    $('eLoader').value = editor.loader.type;
     updateEditorMem();
     updateEditorJava();
     renderIconPicker();
     $('editForm').scrollTop = 0;
     openModal($('editModal'), $('eName'));
+    loadLoaderVersions();
     await loadEditorVersions();
   }
+
+  // Loader + loader version (default: recommended / latest stable)
+  let loaderReq = 0;
+  async function loadLoaderVersions() {
+    const type = $('eLoader').value;
+    const sel = $('eLoaderVersion');
+    const hint = $('eLoaderHint');
+    sel.textContent = '';
+    sel.disabled = type === 'vanilla';
+    hint.textContent = type === 'forge' ? t('loader.forgeHint') : (type === 'neoforge' ? t('loader.neoforgeHint') : '');
+    if (type === 'vanilla') return;
+    const mc = editor.selectedVersion;
+    const auto = document.createElement('option');
+    auto.value = '';
+    auto.textContent = t('loader.autoLatest');
+    if (!mc) { sel.appendChild(auto); return; }
+    const req = ++loaderReq;
+    const loading = document.createElement('option');
+    loading.textContent = t('versions.loading');
+    sel.appendChild(loading);
+    try {
+      const list = await api('loaderVersions', type, mc);
+      if (req !== loaderReq) return;
+      sel.textContent = '';
+      if (!list.length) {
+        hint.textContent = t('loader.none', { loader: LOADER_NAMES[type], mc });
+        sel.appendChild(auto);
+        return;
+      }
+      const want = editor.loader.type === type ? editor.loader.version : null;
+      let picked = false;
+      for (const v of list) {
+        const o = document.createElement('option');
+        o.value = v.version;
+        const tags = [];
+        if (v.recommended) tags.push(t('loader.recommended'));
+        else if (v.latest) tags.push(t('loader.latest'));
+        if (!v.stable) tags.push(t('loader.unstable'));
+        o.textContent = tags.length ? `${v.version} — ${tags.join(', ')}` : v.version;
+        if (want ? v.version === want : v.recommended) { o.selected = true; picked = true; }
+        sel.appendChild(o);
+      }
+      if (want && !picked) {
+        const o = document.createElement('option');
+        o.value = want;
+        o.textContent = want;
+        o.selected = true;
+        sel.prepend(o);
+      }
+    } catch (err) {
+      if (req !== loaderReq) return;
+      sel.textContent = '';
+      sel.appendChild(auto);
+      hint.textContent = friendlyError(err).text;
+    }
+  }
+  $('eLoader').addEventListener('change', loadLoaderVersions);
 
   function renderIconPicker() {
     renderProfileIcon($('eIconPreview'), editor.icon);
@@ -570,7 +644,10 @@
     form.scrollTop = keepScroll;
     requestAnimationFrame(() => { form.scrollTop = keepScroll; });
   }
-  $('eVersion').addEventListener('change', () => { editor.selectedVersion = $('eVersion').value; });
+  $('eVersion').addEventListener('change', () => {
+    editor.selectedVersion = $('eVersion').value;
+    if ($('eLoader').value !== 'vanilla') loadLoaderVersions();
+  });
   $('eVersionSearch').addEventListener('input', renderEditorVersions);
   ['eRelease', 'eSnapshot', 'eOld'].forEach((id) => $(id).addEventListener('change', loadEditorVersions));
 
@@ -614,6 +691,7 @@
       jvmArgs: $('eJvmArgs').value.trim(),
       resolution: { width: w, height: h, fullscreen: $('eFullscreen').checked },
       java: { mode: javaMode, path: javaMode === 'custom' ? $('eJavaPath').value.trim() : null },
+      loader: { type: $('eLoader').value, version: $('eLoader').value === 'vanilla' ? null : ($('eLoaderVersion').value || null) },
     };
     try {
       const saved = editor.mode === 'edit' ? await api('updateProfile', editor.id, data) : await api('createProfile', data);
@@ -627,6 +705,89 @@
   }
   $('eSave').addEventListener('click', saveEditor);
   $('editForm').addEventListener('submit', (e) => { e.preventDefault(); saveEditor(); });
+
+  // ------------------------------------------------------------ storage
+  const STORAGE_PARTS = ['versions', 'libraries', 'assets', 'runtime', 'instances'];
+  const fmtBytes = (b) => (b >= 1073741824 ? `${(b / 1073741824).toFixed(2)} ${t('unit.gb')}` : `${mb(b)} ${t('unit.mb')}`);
+  async function refreshStorage() {
+    const bars = $('storageBars');
+    try {
+      const u = await api('storageUsage');
+      bars.textContent = '';
+      for (const k of STORAGE_PARTS) {
+        const row = document.createElement('div');
+        row.className = 'storage-row';
+        const pct = u.total ? (u[k] / u.total) * 100 : 0;
+        row.innerHTML = `<span class="storage-label"></span><div class="storage-bar"><div class="storage-fill storage-${k}"></div></div><span class="storage-size"></span>`;
+        row.querySelector('.storage-label').textContent = t(`storage.${k}`);
+        row.querySelector('.storage-fill').style.width = `${pct.toFixed(1)}%`;
+        row.querySelector('.storage-size').textContent = fmtBytes(u[k]);
+        bars.appendChild(row);
+      }
+      $('storageTotal').textContent = t('storage.total', { size: fmtBytes(u.total) });
+    } catch (err) { toastError(err); }
+  }
+  $('storageRefresh').addEventListener('click', refreshStorage);
+  $('storageScan').addEventListener('click', async () => {
+    const box = $('storagePlan');
+    box.classList.remove('hidden');
+    box.textContent = t('storage.scanning');
+    $('storageScan').disabled = true;
+    try {
+      const plan = await api('storagePlan');
+      box.textContent = '';
+      if (!plan.count) {
+        box.textContent = t('storage.nothing');
+      } else {
+        const ul = document.createElement('ul');
+        ul.className = 'plan-list';
+        for (const [kind, v] of Object.entries(plan.summary)) {
+          const li = document.createElement('li');
+          li.textContent = t(`storage.kind.${kind}`, { count: v.count, size: fmtBytes(v.bytes) });
+          ul.appendChild(li);
+        }
+        box.appendChild(ul);
+        if (plan.versions.length) {
+          const p = document.createElement('p');
+          p.className = 'small muted';
+          p.textContent = t('storage.versionsList', { list: plan.versions.map((v) => v.id).join(', ') });
+          box.appendChild(p);
+        }
+        if (plan.runtimes.length) {
+          const p = document.createElement('p');
+          p.className = 'small muted';
+          p.textContent = t('storage.runtimesList', { list: plan.runtimes.map((v) => v.id).join(', ') });
+          box.appendChild(p);
+        }
+        const btn = document.createElement('button');
+        btn.className = 'btn danger';
+        btn.textContent = t('storage.clean', { size: fmtBytes(plan.totalBytes) });
+        btn.addEventListener('click', async () => {
+          const ok = await confirmDialog({ title: t('storage.confirmTitle'), text: t('storage.confirmText', { size: fmtBytes(plan.totalBytes), count: plan.count }), ok: t('storage.confirmOk') });
+          if (!ok) return;
+          btn.disabled = true;
+          try {
+            const r = await api('storageClean');
+            toast({ type: 'success', title: t('storage.cleaned'), message: t('storage.cleanedMsg', { size: fmtBytes(r.freed), count: r.removed }), timeout: 7000 });
+            box.classList.add('hidden');
+            refreshStorage();
+            refreshInstalled();
+          } catch (err) { toastError(err); btn.disabled = false; }
+        });
+        box.appendChild(btn);
+      }
+      if (plan.skipped.length) {
+        const p = document.createElement('p');
+        p.className = 'small error';
+        p.textContent = t('storage.skipped', { list: plan.skipped.join('; ') });
+        box.appendChild(p);
+      }
+    } catch (err) {
+      box.textContent = friendlyError(err).text;
+    } finally {
+      $('storageScan').disabled = false;
+    }
+  });
 
   // ------------------------------------------------------------ settings tab
   function renderSettings() {
@@ -873,9 +1034,17 @@
   function renderAll() {
     renderProfileList();
     renderHero();
+    if (window.ForjaMods) window.ForjaMods.render();
     if (state.tab === 'settings') renderSettings();
     if (state.tab === 'log') renderLog();
   }
+
+  // ------------------------------------------------------------ shared with mods.js
+  window.ForjaApp = {
+    state, t, api, toast, toastError, friendlyError, openModal, closeModal, confirmDialog,
+    selected, isBusy, mb, fmtBytes, loaderLabel, refreshProfiles, refreshInstalled,
+    selectProfile: (id) => selectProfile(id), selectTab: (n) => selectTab(n), appendLog: (e) => appendLog(e),
+  };
 
   // ------------------------------------------------------------ init
   (async () => {

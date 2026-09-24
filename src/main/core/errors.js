@@ -21,6 +21,14 @@ function classifyError(err) {
   if (code === 'PROFILE_VERSION_REQUIRED') return out('profileVersion');
   if (code === 'PROFILE_LAST') return out('profileLast');
   if (code === 'ALREADY_RUNNING') return out('alreadyRunning');
+  if (code === 'LOADER_UNAVAILABLE') return out('loaderUnavailable');
+  if (code === 'LOADER_PROCESSOR_FAILED') return out('loaderProcessor');
+  if (code === 'NO_COMPATIBLE_VERSION') return out('noCompatibleVersion');
+  if (code === 'MRPACK_INVALID') return out('mrpackInvalid');
+  if (code === 'UNSAFE_PATH') return out('unsafePath');
+  if (code === 'CLEANUP_BUSY') return out('cleanupBusy');
+  if (code === 'CLEANUP_STALE') return out('cleanupStale');
+  if (code === 'CHECKSUM') return out('checksum');
   if (code === 'VERSION_NOT_FOUND' || /not found locally and not present in manifest/.test(msg)) return out('versionNotFound');
   if (/SHA1 mismatch|Size mismatch|checksum/i.test(msg)) return out('checksum');
   if (err.status === 404 || /HTTP 404/.test(msg)) return out('notFound');

@@ -8,6 +8,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { writeJsonAtomicSync, readJsonSafeSync } = require('./atomic');
+const { normalizeLoader } = require('./loaders');
 
 const SCHEMA_VERSION = 1;
 const ICON_PRESETS = ['anvil', 'flame', 'hammer', 'gem', 'tree', 'mountain', 'shield', 'star', 'compass', 'rocket', 'leaf', 'bolt'];
@@ -77,6 +78,10 @@ function normalizeProfile(p, { requireVersion = false } = {}) {
     jvmArgs: String(p.jvmArgs || '').slice(0, 4000),
     resolution: normalizeResolution(p.resolution),
     java: normalizeJava(p.java),
+    loader: normalizeLoader(p.loader),
+    modpack: p.modpack && typeof p.modpack === 'object'
+      ? { name: String(p.modpack.name || '').slice(0, 80), versionId: p.modpack.versionId ? String(p.modpack.versionId).slice(0, 80) : null, source: p.modpack.source || null }
+      : null,
     created: p.created || new Date().toISOString(),
     lastPlayed: p.lastPlayed || null,
   };

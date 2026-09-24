@@ -44,6 +44,15 @@ window.FORJA_UI_ICONS = {
   wrench: 'M14.5 5.5a4 4 0 0 0 4.9 4.9L21 12l-9 9-3-3 9-9-1.6-1.6a4 4 0 0 0-4.9-4.9l2.5 2.5-2 2-2.5-2.5z',
   trash: 'M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13',
   plus: 'M12 5v14M5 12h14',
+  package: 'M12 3l8 4.5v9L12 21l-8-4.5v-9zM4 7.5l8 4.5 8-4.5M12 12v9',
+  refresh: 'M20 11a8 8 0 0 0-14.9-3M4 5v4h4M4 13a8 8 0 0 0 14.9 3M20 19v-4h-4',
+  search: 'M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14zM21 21l-5-5',
+  external: 'M14 4h6v6M20 4l-9 9M18 14v6H4V6h6',
+  download: 'M12 4v11M7 10l5 5 5-5M5 20h14',
+};
+window.forjaUiIcon = (name, size = 16) => {
+  const d = window.FORJA_UI_ICONS[name];
+  return d ? `<svg viewBox="0 0 24 24" width="${size}" height="${size}" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="${d}"/></svg>` : '';
 };
 document.querySelectorAll('[data-ui-icon]').forEach((el) => {
   const d = window.FORJA_UI_ICONS[el.dataset.uiIcon];
