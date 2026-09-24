@@ -79,6 +79,44 @@ Mojang Java runtime manifest; Adoptium — только как запасной 
 
 ![Профили](docs/phase2-profiles.png)
 
+## Что добавлено в фазе 3
+
+- **Загрузчики модов в профиле**: в редакторе профиля — загрузчик (vanilla / Fabric / Quilt / Forge /
+  NeoForge) и его версия; по умолчанию «последняя стабильная» (для Forge — recommended из
+  `promotions_slim.json`), при первом запуске версия закрепляется в профиле.
+  - **Fabric** — официальный meta `https://meta.fabricmc.net/v2/`, **Quilt** — `https://meta.quiltmc.org/v3/`
+    (JSON профиля версии → `versions/<id>/<id>.json`).
+  - **Forge** — официальный установщик с `https://maven.minecraftforge.net/`. Современные (1.13+):
+    разбор `install_profile.json`, загрузка библиотек, распаковка встроенных `maven/`, запуск
+    процессоров (только `client`) с подстановкой `{DATA}`, `[maven-координат]`, `{MINECRAFT_JAR}`,
+    `{SIDE}` и т. д., проверка SHA1 выходных файлов (если выходы уже верны — процессор пропускается).
+    Старые (<1.13): `versionInfo` из `install_profile.json` + universal jar.
+  - **NeoForge** — `https://maven.neoforged.net/`, тем же кодом процессоров.
+  - Общий механизм **`inheritsFrom`** (`core/loaders/inherit.js`): библиотеки (дочерние первыми,
+    без дублей), аргументы (склейка), `mainClass`/`minecraftArguments` (дочерние важнее).
+  - Реестр установленных загрузчиков — `loaders.json` (какие файлы относятся к установке).
+  - Установщик Forge в `_comment_` просит поддержать проект — в редакторе показана подсказка со ссылкой.
+- **Modrinth** (API v2, User-Agent `ForjaLauncher/<версия> (contact: …)`), вкладка **«Моды»**:
+  - поиск модов / ресурспаков / шейдеров с фильтром по версии игры и загрузчику профиля,
+    категории, сортировке, постранично; страница проекта (описание, значок, загрузки, версии);
+  - установка с автоматической установкой **обязательных зависимостей** (рекурсивно; отсутствующие
+    или несовместимые — сообщаются), проверка **SHA-1 и SHA-512**;
+  - список установленного: включить/выключить (`.jar` ⇄ `.jar.disabled`), удалить,
+    «Проверить обновления» (опознание файлов по хэшу через `/version_files`) и «Обновить все»;
+  - ресурспаки → `resourcepacks/`, шейдеры → `shaderpacks/` (нужен шейдерный мод, например Iris);
+  - **модпаки `.mrpack`**: из поиска Modrinth (с выбором версии) или из локального файла
+    (кнопка «Импорт .mrpack») → новый профиль. Разбор `modrinth.index.json`, загрузка с проверкой
+    хэшей, только разрешённые https-хосты, фильтр `env.client`, `overrides/` затем
+    `client-overrides/`, защита от выхода за папку профиля, загрузчик из `dependencies`,
+    откат при ошибке.
+- **Место на диске** (Настройки): объём версий, библиотек, ресурсов, Java и профилей;
+  «Найти неиспользуемое» → список → «Удалить неиспользуемое». Удаляется только то, на что не
+  ссылается ни один профиль (с учётом цепочек `inheritsFrom`, файлов загрузчиков и Java по
+  `javaVersion`); если какую-то версию прочитать не удалось — библиотеки/Java/ресурсы не трогаются;
+  во время игры или установки очистка запрещена; перед удалением план пересчитывается.
+
+![Моды](docs/phase3-installed-mods.png)
+
 ## Запуск
 
 Требуется Node.js ≥ 18.17 (проверено на 20.x).
@@ -89,6 +127,7 @@ npm start          # запустить лаунчер
 npm test           # модульные тесты (без сети)
 npm run test:integration   # интеграционный тест: реальная установка 1.20.1 и 1.8.9 во временную папку (~1 ГБ)
 node scripts/headless-launch.js 1.20.1 Tester --timeout 60   # установка и запуск без Electron
+node scripts/headless-launch.js 1.20.1 Tester --loader forge   # то же с загрузчиком (fabric|quilt|forge|neoforge[:версия])
 ```
 
 Параметры для разработки (переменные окружения):
@@ -111,7 +150,8 @@ node scripts/headless-launch.js 1.20.1 Tester --timeout 60   # установк�
 
 Внутри: `versions/`, `libraries/`, `assets/` (indexes, objects, virtual, log_configs),
 `runtime/` (Java), `instances/<id профиля>/` (игровые папки), `tmp/natives/` (временные natives),
-`cache/`, `settings.json`, `profiles.json`.
+`cache/`, `settings.json`, `profiles.json`, `loaders.json` (реестр загрузчиков).
+В игровой папке профиля: `mods/`, `resourcepacks/`, `shaderpacks/`, `.forja/content.json` (кэш хэшей).
 
 ## Структура проекта
 
@@ -144,15 +184,25 @@ src/
       games.js         — менеджер запущенных игр (состояния, журналы, kill, crash)
       errors.js        — классификация ошибок → коды для понятных сообщений
       repair.js        — «Проверить и восстановить»
+      loaders/
+        inherit.js     — слияние версий по inheritsFrom
+        meta.js        — Fabric / Quilt (meta API)
+        forge.js       — Forge / NeoForge: версии, установщик, процессоры
+        index.js       — выбор загрузчика, реестр loaders.json, ensureLoader
+      modrinth.js      — клиент Modrinth API v2 (кэш, 429, facets)
+      content.js       — моды/ресурспаки/шейдеры профиля: список, вкл/выкл, зависимости, обновления
+      mrpack.js        — модпаки .mrpack
+      storage.js       — место на диске и безопасная очистка
   preload/preload.js   — узкий API через contextBridge
   renderer/            — интерфейс (HTML/CSS/JS без фреймворков): index.html, styles.css, app.js,
-                         icons.js (значки профилей), i18n/ru.json, i18n/en.json
+                         mods.js (вкладка «Моды»), icons.js (значки), i18n/ru.json, i18n/en.json
   assets/              — иконка приложения (svg/png)
 build/                 — иконки для сборки (png/ico/icns)
 scripts/render-icon.js — рендер иконки из SVG
 test/unit/             — модульные тесты (node:test)
 test/integration/      — интеграционный тест установки
 scripts/headless-launch.js — установка и запуск без Electron
+scripts/check-deps.js  — проверка node_modules перед тестами
 docs/                  — скриншоты и отчёт о тестировании
 ```
 
@@ -164,9 +214,8 @@ docs/                  — скриншоты и отчёт о тестиров�
 
 - ~~Фаза 1 — ядро~~ ✅
 - ~~Фаза 2 — профили/инстансы, настройки, новый интерфейс, natives на запуск, окно сбоя, иконка~~ ✅
-  (не сделано и перенесено: удаление неиспользуемых версий/библиотек — фаза 3 вместе с менеджером модов).
-- **Фаза 3 — моды:** Fabric, Quilt, Forge, NeoForge (через их официальные установщики/мета-API,
-  `inheritsFrom` уже поддерживается), менеджер модов (Modrinth/CurseForge API).
+- ~~Фаза 3 — Fabric, Quilt, Forge, NeoForge, Modrinth (моды, ресурспаки, шейдеры, модпаки .mrpack),
+  очистка диска~~ ✅ (CurseForge не подключён: его API требует ключ, который нельзя хранить в клиенте.)
 - **Фаза 4 — аккаунты Microsoft:** вход через OAuth 2.0 → Xbox Live → XSTS → Minecraft Services,
   проверка владения игрой, несколько аккаунтов, безопасное хранение токенов (OS keychain через `safeStorage`).
 - **Фаза 5 — релиз:** сборки electron-builder (Windows NSIS, macOS DMG/ZIP с подписью и нотаризацией,

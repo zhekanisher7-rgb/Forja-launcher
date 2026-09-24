@@ -353,7 +353,10 @@ async function install({ flavor, layout, full, mcVersion, minecraftJar, javaPath
       const raw = sides && typeof sides === 'object' ? sides.client : sides;
       if (typeof raw === 'string' && raw.startsWith('[') && raw.endsWith(']')) extraFiles.add(mavenPath(raw.slice(1, -1)));
     }
-    return { versionId: id, extraFiles: [...extraFiles] };
+    // Only record files that really exist: some `data` entries are produced only
+    // by server-side processors (e.g. MC_UNPACKED) and never appear on a client.
+    const present = [...extraFiles].filter((rel) => fs.existsSync(path.join(layout.libraries, ...rel.split('/'))));
+    return { versionId: id, extraFiles: present };
   } finally {
     await fsp.rm(tmp, { recursive: true, force: true }).catch(() => {});
   }

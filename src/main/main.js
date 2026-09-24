@@ -11,10 +11,10 @@ const { GameManager } = require('./core/games');
 const { ProfileStore, ICON_PRESETS, COLORS } = require('./core/profiles');
 const { Settings, totalMemoryMb } = require('./core/settings');
 const { sweepStaleNativesDirs } = require('./core/natives');
-const { repairVersion } = require('./core/repair');
+const { repairProfile } = require('./core/repair');
 const { classifyError } = require('./core/errors');
 const { createSession, providers } = require('./auth');
-const { listLoaderVersions, ensureLoader, LoaderRegistry, LOADER_TYPES } = require('./core/loaders');
+const { listLoaderVersions, LoaderRegistry, LOADER_TYPES } = require('./core/loaders');
 const { ModrinthClient, primaryFile, loadersFor, CONTENT_TYPES } = require('./core/modrinth');
 const content = require('./core/content');
 const { installMrpack } = require('./core/mrpack');
@@ -211,29 +211,10 @@ handle('profile:repair', async (profileId) => {
   send('game:state', { profileId, state: 'repairing' });
   try {
     const s = settings.get();
-    let versionId = profile.versionId;
-    if (profile.loader && profile.loader.type !== 'vanilla') {
-      const { installVersion } = require('./core/install');
-      const { ensureJava } = require('./core/java');
-      const onLog = (line) => games.pushLog(profileId, line, 'launcher');
-      const res = await ensureLoader({
-        layout, loader: profile.loader, mcVersion: profile.versionId, signal: controller.signal, onLog, concurrency: s.concurrency,
-        onProgress: (p) => send('game:progress', { profileId, ...p }),
-        prepareVanilla: async () => {
-          const v = await installVersion({ layout, versionId: profile.versionId, gameDir: profile.gameDir, signal: controller.signal, onLog, concurrency: s.concurrency });
-          const javaPath = profile.java.mode === 'custom' ? profile.java.path
-            : (await ensureJava({ layout, version: v.version, signal: controller.signal, onLog, concurrency: s.concurrency })).javaPath;
-          return { clientJar: v.clientJar, javaPath };
-        },
-      });
-      versionId = res.versionId;
-    }
-    const result = await repairVersion({
+    const result = await repairProfile({
       layout,
-      versionId,
-      gameDir: profile.gameDir,
+      profile,
       concurrency: s.concurrency,
-      skipJava: profile.java.mode === 'custom',
       signal: controller.signal,
       onProgress: (p) => send('game:progress', { profileId, ...p }),
       onLog: (line) => games.pushLog(profileId, line, 'launcher'),
