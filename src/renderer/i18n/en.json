@@ -283,6 +283,7 @@
   "storage.skipped": "Part of the scan was skipped for safety: {list}",
   "storage.note": "Only shared files (versions, libraries, Java, assets) not referenced by any profile are removed. Cleanup is unavailable while a game is running.",
   "unit.gb": "GB",
+  "unit.kb": "KB",
   "unit.mb": "MB",
   "error.loaderUnavailable": "The selected loader isn't available for this Minecraft version.",
   "error.loaderProcessor": "The loader installer failed (a processor exited with an error). See the Log tab for details.",

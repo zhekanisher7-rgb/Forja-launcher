@@ -1,14 +1,15 @@
 {
   "name": "forja-launcher",
   "productName": "Forja Launcher",
-  "version": "0.1.0",
-  "description": "Кроссплатформенный лаунчер Minecraft: Java Edition (фаза 1 — ядро)",
+  "version": "0.3.0",
+  "description": "Кроссплатформенный лаунчер Minecraft: Java Edition (фаза 3 — загрузчики модов, Modrinth, модпаки)",
   "main": "src/main/main.js",
   "private": true,
   "license": "UNLICENSED",
   "author": "Forja Launcher contributors",
   "scripts": {
     "start": "electron .",
+    "pretest": "node scripts/check-deps.js",
     "test": "node --test test/unit/",
     "test:integration": "node --test --test-timeout=3600000 test/integration/",
     "launch:headless": "node scripts/headless-launch.js",

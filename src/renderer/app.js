@@ -708,7 +708,11 @@
 
   // ------------------------------------------------------------ storage
   const STORAGE_PARTS = ['versions', 'libraries', 'assets', 'runtime', 'instances'];
-  const fmtBytes = (b) => (b >= 1073741824 ? `${(b / 1073741824).toFixed(2)} ${t('unit.gb')}` : `${mb(b)} ${t('unit.mb')}`);
+  const fmtBytes = (b) => {
+    if (b >= 1073741824) return `${(b / 1073741824).toFixed(2)} ${t('unit.gb')}`;
+    if (b < 102400) return `${Math.max(1, Math.round(b / 1024))} ${t('unit.kb')}`;
+    return `${mb(b)} ${t('unit.mb')}`;
+  };
   async function refreshStorage() {
     const bars = $('storageBars');
     try {
