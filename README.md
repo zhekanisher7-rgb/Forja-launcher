@@ -1,0 +1,144 @@
+# Forja Launcher
+
+Кроссплатформенный (Windows / macOS / Linux) лаунчер **Minecraft: Java Edition** на Electron.
+Сейчас готова **фаза 1 — ядро**: установка любой версии из официальных источников Mojang,
+загрузка нужной Java, сборка аргументов запуска и запуск игры.
+
+> «Forja Launcher» — временное название. Переименовать можно в одном файле: `src/main/config.js`
+> (плюс `productName`/`appId` в `package.json` для сборки).
+
+Лаунчер легальный: всё скачивается только с официальных серверов Mojang
+(`piston-meta.mojang.com`, `libraries.minecraft.net`, `resources.download.minecraft.net`,
+Mojang Java runtime manifest; Adoptium — только как запасной вариант для Java).
+Логотипы Mojang/Minecraft не используются. Для игры нужна лицензия Minecraft: Java Edition.
+
+## Что работает (фаза 1)
+
+- Список версий из манифеста Mojang с кэшем (работает и без сети по кэшу): фильтры
+  релизы / снапшоты / старые (beta/alpha), поиск.
+- Установка версии:
+  - описание версии (JSON) с проверкой SHA1, поддержка `inheritsFrom` (задел для модлоадеров);
+  - клиентский jar, библиотеки с учётом `rules` (ОС, архитектура, версия ОС, features);
+  - natives: старый формат (`natives` + `classifiers`, `${arch}`, `extract.exclude`)
+    и новый (natives как обычные библиотеки `…:natives-linux`, с фильтром по архитектуре);
+  - asset index + объекты; legacy-форматы: `virtual` (1.6.x) и `map_to_resources` (до 1.6);
+  - конфиг логирования log4j (XML-логи игры разбираются в читаемые строки).
+- Загрузчик: параллельно (8–16 потоков), проверка SHA1 и размера, повторы с backoff,
+  докачка `.part` через HTTP Range, пропуск уже валидных файлов, отмена, прогресс.
+- Java: нужная версия берётся из `javaVersion` в JSON версии (по умолчанию Java 8),
+  скачивается официальный Mojang runtime для текущей платформы
+  (`windows-x64/x86/arm64`, `mac-os`, `mac-os-arm64`, `linux`, `linux-i386`),
+  проверяется SHA1, выставляются права на исполнение и символические ссылки (unix),
+  проверка через `java -version`. Для платформ без Mojang runtime (например, Linux arm64) —
+  Adoptium с проверкой SHA256.
+- Запуск: classpath с правильным разделителем (`;` на Windows, `:` на unix),
+  JVM- и игровые аргументы из нового формата `arguments` и старого `minecraftArguments`,
+  подстановка всех плейсхолдеров (`${auth_player_name}`, `${version_name}`, `${game_directory}`,
+  `${assets_root}`, `${game_assets}`, `${assets_index_name}`, `${auth_uuid}`, `${auth_access_token}`,
+  `${user_type}`, `${version_type}`, `${natives_directory}`, `${launcher_name}`, `${launcher_version}`,
+  `${classpath}`, `${classpath_separator}`, `${library_directory}`, `${resolution_width/height}`…),
+  память `-Xms/-Xmx`, вывод stdout/stderr игры в журнал интерфейса.
+- **Офлайн (тест)** — только режим разработки/тестирования: локальное имя игрока,
+  UUID как в vanilla (UUID v3 от `OfflinePlayer:<имя>`). Никакой авторизации не выполняется,
+  на online-mode серверы зайти нельзя. Модуль входа через Microsoft подключается в фазе 4
+  (`src/main/auth/microsoft.js` — заглушка с описанием потока).
+- Интерфейс (тёмная тема, по умолчанию русский, есть английский): список версий с фильтрами
+  и поиском, имя игрока, ползунок памяти, кнопка «Установить и играть» / «Играть»
+  с прогрессом (шаг, файлы, МБ, текущий файл), «Отмена», «Закрыть игру», журнал.
+
+Проверено на Linux x64 (см. `docs/TEST-REPORT.md`): установлены и запущены 1.20.1, 1.8.9,
+1.12.2 (через интерфейс), 1.16.5 (установка + отмена через интерфейс), 1.6.4, 1.5.2 и 26.3 —
+игра доходит до главного меню.
+
+## Запуск
+
+Требуется Node.js ≥ 18.17 (проверено на 20.x).
+
+```bash
+npm install
+npm start          # запустить лаунчер
+npm test           # модульные тесты (без сети)
+npm run test:integration   # интеграционный тест: реальная установка 1.20.1 и 1.8.9 во временную папку (~1 ГБ)
+node scripts/headless-launch.js 1.20.1 Tester --timeout 60   # установка и запуск без Electron
+```
+
+Параметры для разработки (переменные окружения):
+
+- `FORJA_DATA_DIR=/путь` — другая папка данных лаунчера;
+- `FORJA_IT_DIR`, `FORJA_IT_VERSIONS=1.20.1,1.8.9` — для интеграционного теста.
+
+Если Electron не стартует в контейнере/виртуалке без sandbox, запускайте локально
+`npx electron . --no-sandbox` — этот флаг **не** добавлен в код и в сборку намеренно.
+
+## Где хранятся данные
+
+Отдельно от стандартной `.minecraft`:
+
+| ОС      | Папка |
+|---------|-------|
+| Windows | `%APPDATA%\Forja Launcher` |
+| macOS   | `~/Library/Application Support/Forja Launcher` |
+| Linux   | `$XDG_DATA_HOME/forja-launcher` или `~/.local/share/forja-launcher` |
+
+Внутри: `versions/`, `libraries/`, `assets/` (indexes, objects, virtual, log_configs),
+`runtime/` (Java), `instances/default/` (игровая папка), `cache/`, `settings.json`.
+
+## Структура проекта
+
+```
+src/
+  main/
+    main.js            — главный процесс Electron, IPC
+    config.js          — название лаунчера и официальные адреса (переименование — здесь)
+    settings.js        — настройки пользователя (settings.json)
+    auth/
+      index.js         — реестр провайдеров входа (единый формат сессии)
+      offline.js       — «Офлайн (тест)», offline UUID
+      microsoft.js     — заглушка под фазу 4
+    core/              — ядро, обычные Node-модули без Electron (тестируются отдельно)
+      paths.js         — папка данных по ОС и раскладка каталогов
+      platform.js      — имя ОС/архитектура в терминах Mojang, разделитель classpath
+      rules.js         — вычисление rules (os/arch/version/features)
+      library.js       — maven-пути, разрешение библиотек и natives
+      http.js          — fetch с User-Agent и повторами
+      download.js      — параллельный загрузчик (SHA1, повторы, докачка, отмена)
+      versions.js      — манифест версий, кэш, фильтры
+      install.js       — установка версии (jar, библиотеки, natives, ресурсы, логирование)
+      java.js          — Mojang Java runtime / Adoptium
+      launch.js        — сборка аргументов и запуск процесса
+      log4j.js         — разбор XML-логов игры
+      launcher.js      — оркестрация: установка → Java → запуск
+  preload/preload.js   — узкий API через contextBridge
+  renderer/            — интерфейс (HTML/CSS/JS без фреймворков), i18n/ru.json, i18n/en.json
+test/unit/             — модульные тесты (node:test)
+test/integration/      — интеграционный тест установки
+scripts/headless-launch.js — установка и запуск без Electron
+docs/                  — скриншоты и отчёт о тестировании
+```
+
+Безопасность Electron: `contextIsolation: true`, `nodeIntegration: false`, `sandbox: true`,
+строгий CSP, запрет навигации и новых окон; рендерер общается с ядром только через
+перечисленные в `preload.js` методы.
+
+## Дорожная карта
+
+- **Фаза 2 — профили/инстансы и настройки:** несколько профилей с отдельными игровыми папками,
+  своими версией, Java, памятью, разрешением и JVM-аргументами; выбор своей Java; удаление/проверка версий.
+- **Фаза 3 — моды:** Fabric, Quilt, Forge, NeoForge (через их официальные установщики/мета-API,
+  `inheritsFrom` уже поддерживается), менеджер модов (Modrinth/CurseForge API).
+- **Фаза 4 — аккаунты Microsoft:** вход через OAuth 2.0 → Xbox Live → XSTS → Minecraft Services,
+  проверка владения игрой, несколько аккаунтов, безопасное хранение токенов (OS keychain через `safeStorage`).
+- **Фаза 5 — релиз:** сборки electron-builder (Windows NSIS, macOS DMG/ZIP с подписью и нотаризацией,
+  Linux AppImage/deb), автообновление, иконки, CI.
+
+### Важно про вход через Microsoft
+
+Для входа через Microsoft нужно **зарегистрировать приложение в Azure (Microsoft Entra ID)** и получить
+Client ID, а затем **подать заявку Mojang на доступ к Minecraft API** для этого приложения
+(новые Azure-приложения без одобрения получают отказ от `api.minecraftservices.com`).
+Client ID будет храниться в конфигурации, а не в коде; секреты в клиентском приложении не используются
+(публичный клиент, device code или auth code + PKCE).
+
+## Известные ограничения
+
+См. `docs/TEST-REPORT.md` → «Известные проблемы».

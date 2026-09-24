@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'" />
+  <title>Forja Launcher</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <header class="brand">
+        <div class="logo" aria-hidden="true">F</div>
+        <div>
+          <div class="brand-name" id="brandName">Forja Launcher</div>
+          <div class="brand-sub" data-i18n="app.subtitle"></div>
+        </div>
+      </header>
+
+      <div class="section-title">
+        <span data-i18n="versions.title"></span>
+        <button class="icon-btn" id="refreshBtn" data-i18n-title="versions.refresh">⟳</button>
+      </div>
+      <input type="search" id="versionSearch" class="input" data-i18n-placeholder="versions.search" />
+      <div class="chips">
+        <label class="chip"><input type="checkbox" id="fRelease" checked /><span data-i18n="versions.release"></span></label>
+        <label class="chip"><input type="checkbox" id="fSnapshot" /><span data-i18n="versions.snapshot"></span></label>
+        <label class="chip"><input type="checkbox" id="fOld" /><span data-i18n="versions.old"></span></label>
+      </div>
+      <div class="notice hidden" id="versionsNotice"></div>
+      <ul class="version-list" id="versionList" role="listbox"></ul>
+    </aside>
+
+    <main class="main">
+      <section class="cards">
+        <div class="card">
+          <h2 data-i18n="account.title"></h2>
+          <label class="field">
+            <span data-i18n="account.mode"></span>
+            <select id="authType" class="input">
+              <option value="offline" data-i18n="account.offline"></option>
+              <option value="microsoft" data-i18n="account.microsoft" disabled></option>
+            </select>
+          </label>
+          <label class="field">
+            <span data-i18n="account.username"></span>
+            <input id="username" class="input" maxlength="16" spellcheck="false" autocomplete="off" />
+            <small class="error hidden" id="usernameError" data-i18n="account.usernameInvalid"></small>
+          </label>
+          <p class="note" data-i18n="account.offlineNote"></p>
+        </div>
+
+        <div class="card">
+          <h2 data-i18n="settings.memory"></h2>
+          <div class="memory-row">
+            <input type="range" id="memory" min="512" max="8192" step="256" />
+            <output id="memoryValue" class="mem-value"></output>
+          </div>
+          <small class="hint" id="memoryHint"></small>
+          <label class="field inline">
+            <span data-i18n="settings.language"></span>
+            <select id="language" class="input small">
+              <option value="ru">Русский</option>
+              <option value="en">English</option>
+            </select>
+          </label>
+          <button class="btn ghost" id="openDirBtn" data-i18n="settings.openDir"></button>
+        </div>
+      </section>
+
+      <section class="play-card">
+        <div class="play-info">
+          <div class="muted" data-i18n="play.selected"></div>
+          <div class="selected-version" id="selectedVersion">—</div>
+          <div class="status" id="status"></div>
+        </div>
+        <div class="play-actions">
+          <button class="btn primary big" id="playBtn"></button>
+          <button class="btn danger hidden" id="cancelBtn" data-i18n="play.cancel"></button>
+          <button class="btn danger hidden" id="killBtn" data-i18n="play.kill"></button>
+        </div>
+        <div class="progress-wrap hidden" id="progressWrap">
+          <div class="progress-meta">
+            <span id="progressStep"></span>
+            <span id="progressFiles"></span>
+            <span id="progressMb"></span>
+          </div>
+          <div class="progress"><div class="progress-bar" id="progressBar"></div></div>
+          <div class="progress-current" id="progressCurrent"></div>
+        </div>
+      </section>
+
+      <section class="log-card">
+        <div class="log-head">
+          <h2 data-i18n="log.title"></h2>
+          <div class="log-tools">
+            <label class="chip small"><input type="checkbox" id="autoscroll" checked /><span data-i18n="log.autoscroll"></span></label>
+            <button class="btn ghost small" id="copyLogBtn" data-i18n="log.copy"></button>
+            <button class="btn ghost small" id="clearLogBtn" data-i18n="log.clear"></button>
+          </div>
+        </div>
+        <pre class="log" id="log"></pre>
+      </section>
+    </main>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>
