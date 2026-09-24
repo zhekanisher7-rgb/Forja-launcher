@@ -300,3 +300,7 @@ textarea.input { resize: vertical; }
 .task-strip { position: fixed; left: 296px; right: 420px; bottom: 16px; z-index: 90; display: grid; grid-template-columns: auto 1fr auto; gap: 12px; align-items: center; background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; box-shadow: var(--shadow); animation: slideIn .25s var(--ease); }
 .task-strip .task-label { font-weight: 600; }
 #modsInstalled .toolbar .input.grow { min-width: 140px; }
+
+/* ---- phase 5: updates card ---- */
+.update-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.update-version { font-weight: 600; margin-bottom: 4px; }

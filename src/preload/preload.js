@@ -12,6 +12,11 @@ const call = (channel) => (...args) => ipcRenderer.invoke(channel, ...args);
 
 contextBridge.exposeInMainWorld('forja', {
   appInfo: call('app:info'),
+  updaterStatus: call('updater:status'),
+  updaterCheck: call('updater:check'),
+  updaterInstall: call('updater:install'),
+  openReleases: call('shell:openReleases'),
+  onUpdaterState: subscribe('updater:state'),
   getI18n: call('i18n:get'),
   getSettings: call('settings:get'),
   setSettings: call('settings:set'),

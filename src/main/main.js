@@ -21,6 +21,7 @@ const { installMrpack } = require('./core/mrpack');
 const storage = require('./core/storage');
 const { downloadAll } = require('./core/download');
 const os = require('node:os');
+const { Updater } = require('./updater');
 
 const layout = createLayout();
 fs.mkdirSync(layout.root, { recursive: true });
@@ -30,6 +31,12 @@ const games = new GameManager({ launchFn: prepareAndLaunch });
 const repairs = new Map(); // profileId -> AbortController
 const modrinth = new ModrinthClient();
 const contentTasks = new Map(); // profileId -> AbortController (mod installs/updates)
+const updater = new Updater({
+  app,
+  updates: config.updates,
+  productName: config.name,
+  canInstall: () => games.runningCount() === 0,
+});
 let modpackTask = null;
 let lastCleanupPlan = null;
 const coded = (code, msg = code) => Object.assign(new Error(msg), { code });
@@ -118,6 +125,13 @@ handle('app:info', () => ({
   profilesMigrated: profiles.migrated,
   auth: Object.values(providers).map((p) => ({ id: p.id, available: p.available })),
 }));
+
+// ---- auto-update ----
+updater.on('state', (st) => send('updater:state', st));
+handle('updater:status', () => updater.status());
+handle('updater:check', () => updater.check());
+handle('updater:install', () => updater.install());
+handle('shell:openReleases', () => shell.openExternal(`${config.repoUrl}/releases`));
 
 handle('i18n:get', (lang) => {
   const safe = ['ru', 'en'].includes(lang) ? lang : config.defaultLanguage;
@@ -443,12 +457,14 @@ if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(() => {
     createWindow();
     sweepStaleNativesDirs(layout.nativesTmp).catch(() => {});
+    updater.start();
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow();
     });
   });
   app.on('window-all-closed', () => {
     games.shutdown();
+    updater.stop();
     for (const c of repairs.values()) c.abort();
     if (process.platform !== 'darwin') app.quit();
   });

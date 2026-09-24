@@ -28,6 +28,8 @@ test('every i18n key used by the renderer exists', () => {
   for (const k of ['mod', 'resourcepack', 'shader', 'modpack']) assert.ok(`mods.type.${k}` in ru && `mods.empty.${k === 'modpack' ? 'mod' : k}` in ru);
   for (const k of ['versions', 'libraries', 'assets', 'runtime', 'instances']) assert.ok(`storage.${k}` in ru, `storage.${k}`);
   for (const k of ['version', 'library', 'runtime', 'assetIndex', 'asset']) assert.ok(`storage.kind.${k}` in ru, `storage.kind.${k}`);
+  for (const k of ['dev', 'disabledByEnv', 'notConfigured', 'macUnsigned', 'unsupportedPackage']) assert.ok(`update.reason.${k}` in ru, `update.reason.${k}`);
+  for (const k of ['idle', 'checking', 'upToDate', 'noReleases']) assert.ok(`update.state.${k}` in ru, `update.state.${k}`);
   for (const k of ['release', 'beta', 'alpha']) assert.ok(`project.vt.${k}` in ru, `project.vt.${k}`);
   for (const i of require('../../src/main/core/profiles').ICON_PRESETS) assert.ok(`icon.${i}` in ru, `icon.${i}`);
 });

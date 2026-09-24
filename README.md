@@ -2,10 +2,14 @@
 
 Кроссплатформенный (Windows / macOS / Linux) лаунчер **Minecraft: Java Edition** на Electron.
 Готовы **фаза 1 — ядро** (установка любой версии из официальных источников Mojang, загрузка
-нужной Java, запуск игры) и **фаза 2 — профили, настройки и новый интерфейс**.
+нужной Java, запуск игры), **фаза 2 — профили, настройки и новый интерфейс**, **фаза 3 — загрузчики
+модов, Modrinth, модпаки** и **фаза 5 — сборка установщиков, CI и автообновление**.
+
+Репозиторий: <https://github.com/zhekanisher7-rgb/Forja-launcher> ·
+Скачать: <https://github.com/zhekanisher7-rgb/Forja-launcher/releases>
 
 > «Forja Launcher» — временное название. Переименовать можно в одном файле: `src/main/config.js`
-> (плюс `productName`/`appId` в `package.json` для сборки).
+> (плюс `productName`/`appId` в `scripts/builder-config.js` для сборки).
 
 Лаунчер легальный: всё скачивается только с официальных серверов Mojang
 (`piston-meta.mojang.com`, `libraries.minecraft.net`, `resources.download.minecraft.net`,
@@ -117,12 +121,117 @@ Mojang Java runtime manifest; Adoptium — только как запасной 
 
 ![Моды](docs/phase3-installed-mods.png)
 
-## Запуск
+## Установка
+
+Готовые файлы — на странице [Releases](https://github.com/zhekanisher7-rgb/Forja-launcher/releases)
+(`<версия>` — например `0.3.0`). Сборки пока **не подписаны** — это нормально, но система
+предупредит при первом запуске.
+
+| ОС | Файл | Как установить |
+|---|---|---|
+| Windows 10/11 x64 | `Forja-Launcher-<версия>-win-x64-setup.exe` | Запустить установщик (язык — русский/английский, установка для текущего пользователя без прав администратора, ярлыки на рабочем столе и в «Пуске»). |
+| Windows (без установки) | `Forja-Launcher-<версия>-win-x64.zip`, `…-win-arm64.zip` | Распаковать и запустить `Forja Launcher.exe`. Автообновления в portable-версии нет. |
+| macOS Apple Silicon (M1…) | `Forja-Launcher-<версия>-mac-arm64.dmg` | Открыть dmg, перетащить в «Программы». |
+| macOS Intel | `Forja-Launcher-<версия>-mac-x64.dmg` | То же. (Есть и `.zip`-варианты.) |
+| Linux (любой) | `Forja-Launcher-<версия>-linux-x86_64.AppImage` | `chmod +x Forja-Launcher-*.AppImage && ./Forja-Launcher-*.AppImage` (нужен `libfuse2`; без него — `--appimage-extract-and-run`). Автообновление работает. |
+| Debian/Ubuntu | `Forja-Launcher-<версия>-linux-amd64.deb` | `sudo apt install ./Forja-Launcher-*-linux-amd64.deb` — зависимости (`libegl1`, `libgl1`, `libgtk-3-0`, `libnss3`, …) подтянутся сами; рекомендуются `libopenal1`, `x11-xserver-utils` (xrandr для Minecraft ≤ 1.12.2). |
+| Linux (архив) | `Forja-Launcher-<версия>-linux-x64.tar.gz` | Распаковать, запустить `forja-launcher`. |
+
+**Предупреждения о неподписанном приложении:**
+
+- **Windows SmartScreen** («Система Windows защитила ваш компьютер»): нажмите **«Подробнее» → «Выполнить в любом случае»**.
+- **macOS Gatekeeper** («не удаётся проверить разработчика» / «приложение повреждено»):
+  в Finder **правый клик по приложению → «Открыть» → «Открыть»** (один раз). Если macOS пишет,
+  что приложение повреждено, снимите карантин в Терминале:
+  `xattr -dr com.apple.quarantine "/Applications/Forja Launcher.app"`.
+  Начиная с macOS 15 может понадобиться «Системные настройки → Конфиденциальность и безопасность → Всё равно открыть».
+- **Linux**: предупреждений нет; для AppImage нужен `libfuse2` (Ubuntu 22.04+: `sudo apt install libfuse2`,
+  Ubuntu 24.04+: `libfuse2t64`).
+
+Данные лаунчера (версии, миры, моды) при удалении программы **не удаляются** — см. «Где хранятся данные».
+
+## Автообновление
+
+Лаунчер сам проверяет новые версии в GitHub Releases (при запуске и каждые 6 часов), скачивает их
+в фоне и предлагает «Перезапустить и обновить» (Настройки → «Обновления лаунчера»; пока запущена игра,
+обновление не ставится). Работает для: Windows-установщика (NSIS), AppImage и **подписанной** сборки macOS.
+Отключено (с пояснением в настройках): при запуске из исходников, в portable-zip, deb/tar.gz,
+в неподписанной macOS-сборке (Squirrel.Mac не принимает неподписанные обновления) и если
+`FORJA_DISABLE_UPDATES=1`.
+
+**Репозиторий обновлений задаётся в одном месте** — `package.json`:
+
+```json
+"forja": { "updates": { "owner": "zhekanisher7-rgb", "repo": "Forja-launcher" } }
+```
+
+Сборка в CI автоматически подставляет репозиторий, в котором она запущена (`FORJA_UPDATE_REPO`),
+так что форк будет обновляться из своих релизов. Пустые значения или `OWNER` отключают автообновление.
+
+## Сборка установщиков
+
+Требуется Node.js 20 и `npm ci`. Каждая ОС собирается на своей системе (так же делает CI):
+
+```bash
+npm ci
+npm run dist:linux   # AppImage + deb + tar.gz        → dist/
+npm run dist:win     # NSIS x64 + zip x64/arm64        (на Windows)
+npm run dist:mac     # dmg + zip x64 и arm64           (на macOS)
+```
+
+- Конфигурация — `electron-builder.config.js` → `scripts/builder-config.js` (appId `io.github.forja.launcher`,
+  имена файлов `Forja-Launcher-<версия>-<ОС>-<арх>.<расширение>`, версия берётся из `package.json`).
+- Иконки: `build/icon.ico` (Windows), `build/icon.icns` (macOS), `build/icons/*.png` (Linux, 16–1024 px).
+- **Подпись (необязательно)** — только через переменные окружения, без них сборка просто не подписана:
+  - macOS: `CSC_LINK` (сертификат Developer ID `.p12`, путь или base64) + `CSC_KEY_PASSWORD`;
+    нотаризация — `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID`.
+    Без сертификата приложение получает ad-hoc подпись (`scripts/after-pack.js`) — иначе Apple Silicon его не запустит.
+    Hardened runtime включён, entitlements минимальные (`build/entitlements.mac.plist`: JIT для V8).
+  - Windows: `WIN_CSC_LINK` + `WIN_CSC_KEY_PASSWORD`.
+- Сборка Windows из Linux требует `wine` (для rcedit/иконки exe) — проще собирать в CI.
+- `npm run smoke` — быстрая проверка ядра для текущей ОС без игры (манифест, библиотеки и natives,
+  аргументы запуска, Java runtime, цепочка Fabric); `node scripts/ci-smoke.js --as win32/x64` —
+  имитация другой ОС.
+
+## Публикация через GitHub
+
+Workflow `.github/workflows/build.yml` (секреты не нужны):
+
+1. На каждый push/PR: тесты + `ci-smoke` на Ubuntu, Windows, macOS arm64 (`macos-latest`) и
+   macOS x64 (`macos-15-intel`), затем сборка Linux / Windows / macOS; установщики доступны
+   во вкладке **Actions → запуск → Artifacts** (14 дней).
+2. **Релиз:** поднимите версию в `package.json` (например `0.3.0`), закоммитьте и поставьте тег:
+
+   ```bash
+   git remote add origin https://github.com/zhekanisher7-rgb/Forja-launcher.git   # один раз
+   git push -u origin main
+   git tag v0.3.0
+   git push origin v0.3.0
+   ```
+
+   Workflow проверит, что тег совпадает с версией, соберёт всё и создаст **GitHub Release**
+   `Forja Launcher v0.3.0` со всеми установщиками и файлами `latest*.yml` / `*.blockmap`
+   (их читает автообновление). Теги с дефисом (`v0.4.0-beta.1`) публикуются как pre-release.
+3. Для подписи добавьте секреты репозитория `MAC_CSC_LINK`, `MAC_CSC_KEY_PASSWORD`, `APPLE_ID`,
+   `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID`, `WIN_CSC_LINK`, `WIN_CSC_KEY_PASSWORD` —
+   workflow подхватит их сам.
+
+## Что не проверено вживую
+
+- Установщики Windows и macOS **собраны только в CI** (на машине разработки их не собирали и не запускали);
+  их установка, ярлыки, язык установщика, SmartScreen/Gatekeeper, автообновление — не проверены.
+- Модульные тесты и `ci-smoke` на Windows/macOS впервые запустятся в CI.
+- Автообновление не проверено end-to-end (нужны два опубликованных релиза).
+- deb не устанавливался через `apt` на чистой системе (проверены метаданные `dpkg-deb -I`).
+- Linux arm64 не собирается: Mojang не выпускает natives LWJGL и Java для linux-arm64.
+- Подробнее — `docs/TEST-REPORT.md`.
+
+## Запуск (разработка)
 
 Требуется Node.js ≥ 18.17 (проверено на 20.x).
 
 ```bash
-npm install
+npm ci
 npm start          # запустить лаунчер
 npm test           # модульные тесты (без сети)
 npm run test:integration   # интеграционный тест: реальная установка 1.20.1 и 1.8.9 во временную папку (~1 ГБ)
@@ -159,7 +268,8 @@ node scripts/headless-launch.js 1.20.1 Tester --loader forge   # то же с з
 src/
   main/
     main.js            — главный процесс Electron, IPC
-    config.js          — название лаунчера и официальные адреса (переименование — здесь)
+    config.js          — название лаунчера, официальные адреса, репозиторий обновлений
+    updater.js         — автообновление (electron-updater, GitHub Releases)
     auth/
       index.js         — реестр провайдеров входа (единый формат сессии)
       offline.js       — «Офлайн (тест)», offline UUID
@@ -197,12 +307,17 @@ src/
   renderer/            — интерфейс (HTML/CSS/JS без фреймворков): index.html, styles.css, app.js,
                          mods.js (вкладка «Моды»), icons.js (значки), i18n/ru.json, i18n/en.json
   assets/              — иконка приложения (svg/png)
-build/                 — иконки для сборки (png/ico/icns)
+build/                 — иконки для сборки (ico/icns, icons/ для Linux), entitlements.mac.plist
 scripts/render-icon.js — рендер иконки из SVG
 test/unit/             — модульные тесты (node:test)
 test/integration/      — интеграционный тест установки
 scripts/headless-launch.js — установка и запуск без Electron
 scripts/check-deps.js  — проверка node_modules перед тестами
+scripts/ci-smoke.js    — smoke-проверка ядра для текущей ОС (CI)
+scripts/verify-profiles.js — проверка файлов всех профилей по SHA1
+scripts/builder-config.js, electron-builder.config.js — конфигурация сборки
+scripts/after-pack.js  — ad-hoc подпись macOS без сертификата
+.github/workflows/build.yml — CI: тесты, сборка, релиз по тегу v*
 docs/                  — скриншоты и отчёт о тестировании
 ```
 
@@ -218,9 +333,9 @@ docs/                  — скриншоты и отчёт о тестиров�
   очистка диска~~ ✅ (CurseForge не подключён: его API требует ключ, который нельзя хранить в клиенте.)
 - **Фаза 4 — аккаунты Microsoft:** вход через OAuth 2.0 → Xbox Live → XSTS → Minecraft Services,
   проверка владения игрой, несколько аккаунтов, безопасное хранение токенов (OS keychain через `safeStorage`).
-- **Фаза 5 — релиз:** сборки electron-builder (Windows NSIS, macOS DMG/ZIP с подписью и нотаризацией,
-  Linux AppImage/deb), автообновление, CI. Иконки уже готовы в `build/`
-  (для macOS можно дополнительно пересобрать `icon.icns` через `iconutil`); для deb добавить зависимость `libegl1`.
+- ~~Фаза 5 — релиз: установщики (NSIS, dmg/zip, AppImage/deb/tar.gz), CI с релизом по тегу,
+  автообновление~~ ✅ (подпись/нотаризация — по желанию через секреты; см. «Сборка установщиков»).
+- **Фаза 4 — аккаунты Microsoft** — следующая (см. ниже).
 
 ### Важно про вход через Microsoft
 

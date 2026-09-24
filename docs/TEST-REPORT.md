@@ -2,6 +2,39 @@
 
 Машина: Linux x86_64 (Debian 13, Mesa llvmpipe, без GPU и звука), Node 20.19, Electron 31.
 
+# Фаза 5 — сборка, CI, автообновление (24.09.2026)
+
+## Автотесты
+- `npm test`: **78/78** (новое: `packaging.test.js` — конфиг electron-builder, подпись только по env, репозиторий обновлений, `updateSupport`, классификация ошибок обновления; i18n-тест проверяет динамические ключи `update.*`).
+- `node scripts/ci-smoke.js`: 7/7 на linux/x64 (реально); через `--as` смоделированы win32/x64, win32/arm64, darwin/x64, darwin/arm64, linux/arm64 — 7/7 (для linux/arm64 предупреждение: Mojang не публикует natives).
+- `actionlint 1.7.12` для `.github/workflows/build.yml` — без замечаний.
+
+## Linux-артефакты (`npm run dist:linux`, собраны локально)
+| Файл | Размер |
+|---|---|
+| `Forja-Launcher-0.3.0-linux-x86_64.AppImage` | ~103 МБ |
+| `Forja-Launcher-0.3.0-linux-amd64.deb` | ~72 МБ |
+| `Forja-Launcher-0.3.0-linux-x64.tar.gz` | ~97 МБ |
+| `latest-linux.yml` | метаданные обновления |
+
+- `dpkg-deb -I`: Depends: libgtk-3-0|libgtk-3-0t64, libnotify4, libnss3, libxss1, libxtst6, xdg-utils, libatspi2.0-0|libatspi2.0-0t64, libuuid1, libsecret-1-0, libgbm1, libdrm2, libxkbcommon0, libasound2|libasound2t64, libegl1, libgl1, ca-certificates; Recommends: libopenal1, x11-xserver-utils, libpulse0; Section: games.
+- Содержимое deb: иконки hicolor 16…1024, `.desktop` (`Categories=Game;`, `Icon=forja-launcher`), `app-update.yml` с owner/repo `zhekanisher7-rgb/Forja-launcher`.
+- `apt-get -s install ./…deb` на Debian 13 — зависимости разрешаются (реально не устанавливался).
+- AppImage запущен (`--appimage-extract-and-run --no-sandbox`, только в командной строке): главное окно — `docs/phase5-appimage.png`; карточка «Обновления лаунчера» обратилась к GitHub — `docs/phase5-updates.png` (снимок сделан до того, как пустой репозиторий стал показываться как «Опубликованных версий пока нет», а не как ошибка).
+
+## Windows из Linux
+- Wine не установлен (тяжёлый) → NSIS-установщик собирается только в CI (windows-latest).
+- Кросс-сборка zip без rcedit (`signAndEditExecutable: false`) прошла: `Forja-Launcher-0.3.0-win-x64.zip` ~102 МБ, но у exe нет иконки/метаданных — поэтому в CI Windows собирается на windows-latest.
+
+## Не проверено / известные ограничения
+- CI ещё ни разу не запускался (репозиторий не запушен); установщики Windows (NSIS) и macOS (dmg) не собирались и не запускались; unit-тесты на Windows/macOS не гонялись.
+- Автообновление end-to-end (скачивание и установка новой версии) не проверено — нужен хотя бы один опубликованный релиз и следующий за ним.
+- deb реально не устанавливался (только симуляция apt); AppImage требует libfuse2 (иначе `--appimage-extract-and-run`).
+- Нет сборки linux-arm64; Windows arm64 — только zip.
+- macOS без сертификата: ad-hoc подпись (только при сборке на macOS), автообновление на macOS отключается (`macUnsigned`), Gatekeeper требует «Открыть» через ПКМ или `xattr -dr com.apple.quarantine`.
+- electron-builder 24 не находит `electron-builder.config.js` сам — во всех скриптах указан `--config`.
+- Запуски игры из фазы 3 по-прежнему не подтверждены вживую из-за нехватки памяти на машине.
+
 # Фаза 3 (24.09.2026)
 
 ## Модульные тесты — `npm test`

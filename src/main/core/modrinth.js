@@ -7,7 +7,7 @@ const config = require('../config');
 const { HttpError } = require('./http');
 
 const BASE = 'https://api.modrinth.com/v2';
-const USER_AGENT = `ForjaLauncher/${config.version} (contact: forja-launcher@example.invalid)`;
+const USER_AGENT = `ForjaLauncher/${config.version} (${config.repoUrl.replace(/^https:\/\//, '')})`;
 
 // Project types we manage and where their files go inside the game dir
 const CONTENT_TYPES = {

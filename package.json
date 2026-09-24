@@ -2,67 +2,45 @@
   "name": "forja-launcher",
   "productName": "Forja Launcher",
   "version": "0.3.0",
-  "description": "Кроссплатформенный лаунчер Minecraft: Java Edition (фаза 3 — загрузчики модов, Modrinth, модпаки)",
+  "description": "Кроссплатформенный лаунчер Minecraft: Java Edition (загрузчики модов, Modrinth, модпаки, автообновление)",
   "main": "src/main/main.js",
   "private": true,
   "license": "UNLICENSED",
   "author": "Forja Launcher contributors",
+  "homepage": "https://github.com/zhekanisher7-rgb/Forja-launcher",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/zhekanisher7-rgb/Forja-launcher.git"
+  },
+  "forja": {
+    "updates": {
+      "owner": "zhekanisher7-rgb",
+      "repo": "Forja-launcher"
+    }
+  },
   "scripts": {
     "start": "electron .",
     "pretest": "node scripts/check-deps.js",
     "test": "node --test test/unit/",
     "test:integration": "node --test --test-timeout=3600000 test/integration/",
     "launch:headless": "node scripts/headless-launch.js",
-    "dist": "electron-builder",
-    "dist:win": "electron-builder --win",
-    "dist:mac": "electron-builder --mac",
-    "dist:linux": "electron-builder --linux"
+    "smoke": "node scripts/ci-smoke.js",
+    "dist": "electron-builder --config electron-builder.config.js --publish never",
+    "dist:win": "electron-builder --config electron-builder.config.js --win --publish never",
+    "dist:mac": "electron-builder --config electron-builder.config.js --mac --publish never",
+    "dist:linux": "electron-builder --config electron-builder.config.js --linux --publish never",
+    "release": "electron-builder --config electron-builder.config.js --publish always"
   },
   "engines": {
     "node": ">=18.17"
   },
   "dependencies": {
     "adm-zip": "^0.5.16",
+    "electron-updater": "~6.2.1",
     "tar": "^6.2.1"
   },
   "devDependencies": {
     "electron": "^31.7.7",
     "electron-builder": "^24.13.3"
-  },
-  "build": {
-    "appId": "org.forja.launcher",
-    "productName": "Forja Launcher",
-    "directories": {
-      "output": "dist",
-      "buildResources": "build"
-    },
-    "files": [
-      "src/**/*",
-      "package.json",
-      "!test/**",
-      "!docs/**",
-      "!scripts/**"
-    ],
-    "win": {
-      "target": [{ "target": "nsis", "arch": ["x64", "arm64"] }]
-    },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
-      "perMachine": false
-    },
-    "mac": {
-      "category": "public.app-category.games",
-      "target": [
-        { "target": "dmg", "arch": ["x64", "arm64"] },
-        { "target": "zip", "arch": ["x64", "arm64"] }
-      ],
-      "hardenedRuntime": true
-    },
-    "linux": {
-      "category": "Game",
-      "target": ["AppImage", "deb"],
-      "maintainer": "Forja Launcher contributors"
-    }
   }
 }

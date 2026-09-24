@@ -820,6 +820,7 @@
       rs.appendChild(o);
     }
     rs.value = cur && state.profiles.some((p) => p.id === cur) ? cur : state.selectedId;
+    renderUpdate();
   }
 
   let savedTimer;
@@ -1043,6 +1044,39 @@
     if (state.tab === 'log') renderLog();
   }
 
+
+  // ------------------------------------------------------------ updates
+  state.update = null;
+  function renderUpdate() {
+    const u = state.update;
+    if (!u || !state.info) return;
+    $('updVersion').textContent = t('update.current', { version: u.current || state.info.version });
+    let msg;
+    if (u.state === 'disabled') msg = t(`update.reason.${u.reason || 'dev'}`);
+    else if (u.state === 'downloading') msg = t('update.downloading', { version: u.version || '', percent: u.percent || 0 });
+    else if (u.state === 'downloaded') msg = t('update.downloaded', { version: u.version || '' });
+    else if (u.state === 'error') msg = t('update.error', { error: u.error || '' });
+    else msg = t(`update.state.${u.state}`);
+    $('updStatus').textContent = msg;
+    $('updCheck').disabled = u.state === 'disabled' || u.state === 'checking' || u.state === 'downloading';
+    $('updInstall').classList.toggle('hidden', u.state !== 'downloaded');
+  }
+  forja.onUpdaterState((u) => {
+    const was = state.update && state.update.state;
+    state.update = u;
+    renderUpdate();
+    if (u.state === 'downloaded' && was !== 'downloaded') {
+      toast({ type: 'success', title: t('update.readyTitle'), message: t('update.downloaded', { version: u.version || '' }), timeout: 10000 });
+    }
+  });
+  $('updCheck').addEventListener('click', async () => {
+    try { state.update = await api('updaterCheck'); renderUpdate(); } catch (err) { toastError(err); }
+  });
+  $('updInstall').addEventListener('click', async () => {
+    try { await api('updaterInstall'); } catch (err) { toastError(err); }
+  });
+  $('updReleases').addEventListener('click', () => { api('openReleases').catch(toastError); });
+
   // ------------------------------------------------------------ shared with mods.js
   window.ForjaApp = {
     state, t, api, toast, toastError, friendlyError, openModal, closeModal, confirmDialog,
@@ -1066,6 +1100,8 @@
       await loadLanguage(state.settings.language);
       appendLog({ profileId: 'launcher', line: `${state.info.name} ${state.info.version} — ${state.info.platform}/${state.info.arch} — ${state.info.dataDir}`, source: 'launcher' });
       await refreshInstalled();
+      state.update = await api('updaterStatus');
+      renderUpdate();
       const p = selected();
       if (p && !p.versionId) {
         toast({ type: 'info', title: t('toast.pickVersionTitle'), message: t('toast.pickVersion'), timeout: 8000 });

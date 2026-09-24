@@ -248,6 +248,20 @@
             <div class="storage-plan hidden" id="storagePlan"></div>
             <p class="note small" data-i18n="storage.note"></p>
           </div>
+          <div class="card span2" id="updateCard">
+            <h2 data-i18n="update.title"></h2>
+            <div class="update-row">
+              <div>
+                <div class="update-version" id="updVersion"></div>
+                <div class="note" id="updStatus" aria-live="polite"></div>
+              </div>
+              <div class="input-row">
+                <button class="btn" id="updCheck"><span data-ui-icon="refresh"></span> <span data-i18n="update.check"></span></button>
+                <button class="btn primary hidden" id="updInstall" data-i18n="update.install"></button>
+                <button class="btn" id="updReleases"><span data-ui-icon="external"></span> <span data-i18n="update.releases"></span></button>
+              </div>
+            </div>
+          </div>
         </div>
         <div class="saved-hint" id="savedHint" data-i18n="settings.saved" aria-live="polite"></div>
       </section>

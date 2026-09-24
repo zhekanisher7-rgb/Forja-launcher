@@ -27,6 +27,8 @@ function classifyError(err) {
   if (code === 'MRPACK_INVALID') return out('mrpackInvalid');
   if (code === 'UNSAFE_PATH') return out('unsafePath');
   if (code === 'CLEANUP_BUSY') return out('cleanupBusy');
+  if (code === 'UPDATE_NOT_READY') return out('updateNotReady');
+  if (code === 'UPDATE_GAME_RUNNING') return out('updateGameRunning');
   if (code === 'CLEANUP_STALE') return out('cleanupStale');
   if (code === 'CHECKSUM') return out('checksum');
   if (code === 'VERSION_NOT_FOUND' || /not found locally and not present in manifest/.test(msg)) return out('versionNotFound');
