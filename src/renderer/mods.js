@@ -575,5 +575,123 @@
     if (m.view === 'installed') renderInstalled();
     else renderSearch();
   }
+  
+  // ---- UI pack: favorites, search history, skeletons helpers ----
+  function renderSearchHistory() {
+    const box = document.getElementById('searchHistory');
+    if (!box || !window.ForjaUiPack) return;
+    const hist = window.ForjaUiPack.modSearchHistory() || [];
+    box.textContent = '';
+    if (!hist.length) return;
+    const label = document.createElement('span');
+    label.className = 'muted small';
+    label.textContent = (window.ForjaApp && window.ForjaApp.t('mods.recentSearches')) || 'Recent';
+    box.appendChild(label);
+    for (const q of hist.slice(0, 8)) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = q;
+      b.addEventListener('click', () => {
+        const input = document.getElementById('searchQuery') || document.getElementById('searchInput');
+        if (input) { input.value = q; input.dispatchEvent(new Event('input', { bubbles: true })); }
+      });
+      box.appendChild(b);
+    }
+  }
+
+  const _origRenderSearch = typeof renderSearch === 'function' ? renderSearch : null;
+  if (_origRenderSearch) {
+    // wrap card creation: MutationObserver polish
+    const results = document.getElementById('searchResults');
+    if (results) {
+      const mo = new MutationObserver(() => {
+        results.querySelectorAll('.result-card').forEach((card) => {
+          if (card.dataset.uiPack) return;
+          card.dataset.uiPack = '1';
+          const id = card.dataset.id || card.dataset.projectId;
+          const desc = card.querySelector('.result-desc');
+          if (desc && !card.querySelector('.desc-pop')) {
+            const pop = document.createElement('div');
+            pop.className = 'desc-pop';
+            pop.textContent = desc.textContent || '';
+            card.appendChild(pop);
+          }
+          if (id && !card.querySelector('.fav-btn') && window.ForjaUiPack) {
+            const fav = document.createElement('button');
+            fav.type = 'button';
+            fav.className = 'fav-btn' + ((window.ForjaUiPack.favoriteMods() || []).includes(id) ? ' on' : '');
+            fav.textContent = '★';
+            fav.title = (window.ForjaApp && window.ForjaApp.t('mods.favorite')) || 'Favorite';
+            fav.addEventListener('click', async (e) => {
+              e.stopPropagation();
+              await window.ForjaUiPack.toggleFavorite(id);
+              fav.classList.toggle('on', (window.ForjaUiPack.favoriteMods() || []).includes(id));
+            });
+            card.appendChild(fav);
+          }
+        });
+        const empty = document.getElementById('searchEmpty');
+        if (empty) empty.classList.toggle('hidden', results.childElementCount > 0 || results.getAttribute('aria-busy') === 'true');
+      });
+      mo.observe(results, { childList: true });
+    }
+  }
+
+  // Persist search history on successful search
+  const searchInput = document.getElementById('searchQuery') || document.getElementById('searchInput');
+  if (searchInput) {
+    let lastQ = '';
+    searchInput.addEventListener('change', () => {
+      const q = searchInput.value.trim();
+      if (q && q !== lastQ && window.ForjaUiPack) {
+        lastQ = q;
+        window.ForjaUiPack.pushSearchHistory(q).then(renderSearchHistory).catch(() => {});
+      }
+    });
+  }
+  setTimeout(renderSearchHistory, 800);
+
+  // Update-all progress bar if present
+  const updBtn = document.getElementById('updateAllBtn');
+  const barWrap = document.getElementById('updateProgress');
+  const bar = document.getElementById('updateProgressBar');
+  if (updBtn && barWrap && bar) {
+    updBtn.addEventListener('click', () => {
+      barWrap.classList.remove('hidden');
+      bar.style.width = '8%';
+      let w = 8;
+      const iv = setInterval(() => {
+        w = Math.min(92, w + 7);
+        bar.style.width = w + '%';
+        if (!updBtn.disabled) {
+          clearInterval(iv);
+          bar.style.width = '100%';
+          setTimeout(() => { barWrap.classList.add('hidden'); bar.style.width = '0%'; }, 400);
+        }
+      }, 400);
+    }, true);
+  }
+
+  // Installed empty rich state
+  const contentList = document.getElementById('contentList');
+  if (contentList) {
+    const mo2 = new MutationObserver(() => {
+      const rich = document.getElementById('contentEmptyRich');
+      if (!rich) return;
+      const has = contentList.childElementCount > 0;
+      rich.classList.toggle('hidden', has);
+      const sk = document.getElementById('contentSkeleton');
+      if (sk && has) sk.classList.add('hidden');
+    });
+    mo2.observe(contentList, { childList: true });
+  }
+  const emptySearchBtn = document.getElementById('contentEmptySearch');
+  if (emptySearchBtn) {
+    emptySearchBtn.addEventListener('click', () => {
+      const btn = document.querySelector('#modsView [data-view="search"], #modsView [data-view="browse"]');
+      if (btn) btn.click();
+    });
+  }
+
   window.ForjaMods = { show, render };
 })();

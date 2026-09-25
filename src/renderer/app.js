@@ -168,7 +168,7 @@
   }
 
   // ------------------------------------------------------------ tabs
-  const TABS = ['profiles', 'mods', 'settings', 'log'];
+  const TABS = ['profiles', 'mods', 'news', 'settings', 'log'];
   function selectTab(name, focus = false) {
     state.tab = name;
     document.querySelectorAll('.tab').forEach((b) => {
@@ -185,6 +185,7 @@
     if (name === 'log') { $('logDot').classList.add('hidden'); renderLog(); }
     if (name === 'settings') { renderSettings(); refreshStorage(); }
     if (name === 'mods' && window.ForjaMods) window.ForjaMods.show();
+    if (name === 'news' && window.ForjaUiPack) window.ForjaUiPack.loadNews(false);
   }
   document.querySelectorAll('.tab').forEach((b) => b.addEventListener('click', () => selectTab(b.dataset.tab)));
   document.querySelector('.tabs').addEventListener('keydown', (e) => {
@@ -314,7 +315,14 @@
 
     const preparing = g.state === 'preparing' || g.state === 'repairing';
     $('playBtn').disabled = !p.versionId || isBusy(p.id) || !validUsername();
-    $('playLabel').textContent = p.versionId && !state.installed.has(p.versionId) ? t('play.install') : t('play.play');
+    const gState = g.state;
+    if (gState === 'preparing') {
+      const pct = g.progress && g.progress.totalBytes ? Math.round(100 * g.progress.doneBytes / g.progress.totalBytes)
+        : (g.progress && g.progress.totalFiles ? Math.round(100 * g.progress.doneFiles / g.progress.totalFiles) : null);
+      $('playLabel').textContent = pct != null ? t('play.downloading', { pct }) : t('play.preparing');
+    } else if (gState === 'running') $('playLabel').textContent = t('play.running');
+    else if (gState === 'repairing') $('playLabel').textContent = t('play.repairing');
+    else $('playLabel').textContent = p.versionId && !state.installed.has(p.versionId) ? t('play.install') : t('play.play');
     $('cancelBtn').classList.toggle('hidden', !preparing);
     $('killBtn').classList.toggle('hidden', g.state !== 'running');
     $('repairBtn').disabled = !p.versionId || isBusy(p.id);
@@ -806,6 +814,7 @@
     root.style.setProperty('--glow-strength', String(strengthPct / 100));
     root.style.setProperty('--glow-duration', `${duration}s`);
     root.classList.toggle('glow-anim-off', !anim);
+    if (window.ForjaUiPack) window.ForjaUiPack.applyAppearance(s);
   }
 
   function syncGlowPresetSelection(color) {

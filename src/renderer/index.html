@@ -3,11 +3,23 @@
 <head>
   <meta charset="UTF-8" />
   <meta http-equiv="Content-Security-Policy"
-        content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https://cdn.modrinth.com; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'" />
+        content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https://cdn.modrinth.com https://crafatar.com https://visage.surgeplay.com; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'" />
   <title>Forja Launcher</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
-<body>
+<body class="frameless">
+  <header class="titlebar" id="titlebar" aria-label="Window">
+    <div class="titlebar-brand">
+      <img src="../assets/icon.svg" alt="" />
+      <span id="titlebarTitle">Forja Launcher</span>
+    </div>
+    <div class="titlebar-spacer"></div>
+    <div class="titlebar-controls" id="titlebarControls">
+      <button type="button" class="titlebar-btn" id="winMin" aria-label="Minimize">─</button>
+      <button type="button" class="titlebar-btn" id="winMax" aria-label="Maximize">▢</button>
+      <button type="button" class="titlebar-btn close" id="winClose" aria-label="Close">✕</button>
+    </div>
+  </header>
   <div class="app">
     <!-- ============ Sidebar ============ -->
     <aside class="sidebar" aria-label="Profiles">
@@ -23,7 +35,11 @@
         <span data-i18n="profiles.title"></span>
         <span class="count" id="profileCount"></span>
       </div>
+      <div class="profile-search-wrap">
+        <input type="search" id="profileSearch" class="input profile-search" data-i18n-placeholder="profiles.search" autocomplete="off" />
+      </div>
       <ul class="profile-list" id="profileList" role="listbox" aria-labelledby="profilesLabel" tabindex="-1"></ul>
+      <div class="profile-empty hidden" id="profileEmpty" data-i18n="profiles.empty"></div>
       <div class="sidebar-buttons">
         <button class="btn new-profile" id="newProfileBtn">
           <span data-ui-icon="plus"></span> <span data-i18n="profiles.new"></span>
@@ -34,9 +50,15 @@
       </div>
 
       <div class="account-mini">
-        <div class="account-row">
-          <span class="badge-test" data-i18n="account.offline"></span>
+        <div class="account-row account-row-head">
+          <img id="playerHead" class="player-head fallback" alt="" width="28" height="28" />
+          <span class="badge-test" id="authBadge" data-i18n="account.offline"></span>
         </div>
+        <div class="seg auth-seg" id="authTypeSeg" role="radiogroup" aria-label="auth">
+          <button type="button" class="seg-btn active" data-auth="offline" data-i18n="account.offlineShort">Offline</button>
+          <button type="button" class="seg-btn" data-auth="microsoft" data-i18n="account.microsoftShort">Microsoft</button>
+        </div>
+        <div class="auth-soon hidden" id="msSoon" data-i18n="account.microsoftSoon"></div>
         <label class="field compact">
           <span data-i18n="account.username"></span>
           <input id="username" class="input" maxlength="16" spellcheck="false" autocomplete="off" />
@@ -50,6 +72,7 @@
       <nav class="tabs" role="tablist" aria-label="Sections">
         <button role="tab" class="tab" id="tabBtn-profiles" aria-controls="tab-profiles" aria-selected="true" data-tab="profiles"><span data-i18n="tabs.profiles"></span></button>
         <button role="tab" class="tab" id="tabBtn-mods" aria-controls="tab-mods" aria-selected="false" tabindex="-1" data-tab="mods"><span data-i18n="tabs.mods"></span></button>
+        <button role="tab" class="tab" id="tabBtn-news" aria-controls="tab-news" aria-selected="false" tabindex="-1" data-tab="news"><span data-i18n="tabs.news"></span></button>
         <button role="tab" class="tab" id="tabBtn-settings" aria-controls="tab-settings" aria-selected="false" tabindex="-1" data-tab="settings"><span data-i18n="tabs.settings"></span></button>
         <button role="tab" class="tab" id="tabBtn-log" aria-controls="tab-log" aria-selected="false" tabindex="-1" data-tab="log"><span data-i18n="tabs.log"></span><span class="tab-dot hidden" id="logDot"></span></button>
         <div class="tabs-spacer"></div>
@@ -109,6 +132,11 @@
           <div class="detail wide"><div class="detail-label" data-i18n="profile.gameDir"></div><div class="detail-value mono" id="dGameDir"></div></div>
         </div>
         <p class="note small" data-i18n="account.offlineNote"></p>
+        <div class="widgets" id="widgets">
+          <div class="widget"><div class="w-label" data-i18n="widgets.storage"></div><div class="w-value" id="wStorage">—</div></div>
+          <div class="widget"><div class="w-label" data-i18n="widgets.playtime"></div><div class="w-value" id="wPlaytime">—</div></div>
+          <div class="widget"><div class="w-label" data-i18n="widgets.profiles"></div><div class="w-value" id="wProfiles">—</div></div>
+        </div>
       </section>
 
       <!-- Mods tab -->
@@ -137,8 +165,18 @@
             <button class="btn" id="openContentFolderBtn"><span data-ui-icon="folder"></span> <span data-i18n="mods.openFolder"></span></button>
           </div>
           <div class="content-summary muted small" id="contentSummary"></div>
+          <div class="skeleton-list hidden" id="contentSkeleton" aria-hidden="true">
+            <div class="skeleton-card"></div><div class="skeleton-card"></div><div class="skeleton-card"></div>
+          </div>
+          <div class="update-progress hidden" id="updateProgress"><div id="updateProgressBar"></div></div>
           <ul class="content-list" id="contentList" aria-live="polite"></ul>
           <div class="empty hidden" id="contentEmpty"></div>
+          <div class="empty-state hidden" id="contentEmptyRich">
+            <div class="empty-icon">🧩</div>
+            <h3 data-i18n="mods.emptyInstalledTitle"></h3>
+            <p data-i18n="mods.emptyInstalledText"></p>
+            <button class="btn primary" id="contentEmptySearch" data-i18n="mods.view.search"></button>
+          </div>
         </div>
 
         <div id="modsSearch" class="mods-pane" hidden>
@@ -153,14 +191,38 @@
               <option value="updated" data-i18n="mods.sort.updated"></option>
             </select>
           </div>
+          <div class="search-history" id="searchHistory"></div>
           <div class="search-filter muted small" id="searchFilterInfo"></div>
+          <div class="skeleton-list hidden" id="searchSkeleton" aria-hidden="true">
+            <div class="skeleton-card lg"></div><div class="skeleton-card lg"></div><div class="skeleton-card lg"></div>
+          </div>
           <div class="results" id="searchResults" aria-live="polite"></div>
+          <div class="empty-state hidden" id="searchEmpty">
+            <div class="empty-icon">🔎</div>
+            <h3 data-i18n="mods.emptySearchTitle"></h3>
+            <p data-i18n="mods.emptySearchText"></p>
+          </div>
           <div class="pager">
             <button class="btn small" id="prevPage" data-i18n="mods.prev"></button>
             <span class="muted small" id="pageInfo"></span>
             <button class="btn small" id="nextPage" data-i18n="mods.next"></button>
           </div>
           <p class="note small" data-i18n="mods.modrinthNote"></p>
+        </div>
+      </section>
+
+      <!-- News tab -->
+      <section class="tab-panel" id="tab-news" role="tabpanel" aria-labelledby="tabBtn-news" hidden>
+        <div class="toolbar">
+          <h2 style="margin:0;font-size:16px" data-i18n="news.title"></h2>
+          <div class="spacer"></div>
+          <button class="btn" id="newsRefresh"><span data-ui-icon="refresh"></span> <span data-i18n="news.refresh"></span></button>
+        </div>
+        <div class="news-list" id="newsList" aria-live="polite"></div>
+        <div class="empty-state hidden" id="newsEmpty">
+          <div class="empty-icon">📰</div>
+          <h3 data-i18n="news.emptyTitle"></h3>
+          <p data-i18n="news.emptyText"></p>
         </div>
       </section>
 
@@ -247,6 +309,49 @@
             <div class="input-row" style="margin-top:12px">
               <button type="button" class="btn small" id="sGlowReset" data-i18n="settings.glowReset"></button>
             </div>
+            <div class="glow-preview" id="glowPreview" data-i18n="settings.glowPreview">Glow preview</div>
+
+            <div class="field" style="margin-top:16px">
+              <span class="label" data-i18n="settings.theme"></span>
+              <div class="seg theme-seg" id="sTheme" role="radiogroup">
+                <button type="button" class="seg-btn" data-theme="dark" data-i18n="settings.themeDark">Dark</button>
+                <button type="button" class="seg-btn" data-theme="oled" data-i18n="settings.themeOled">OLED</button>
+                <button type="button" class="seg-btn" data-theme="light" data-i18n="settings.themeLight">Light</button>
+              </div>
+            </div>
+            <div class="field">
+              <span class="label" data-i18n="settings.uiScale"></span>
+              <div class="seg scale-seg" id="sUiScale" role="radiogroup">
+                <button type="button" class="seg-btn" data-scale="90">90%</button>
+                <button type="button" class="seg-btn" data-scale="100">100%</button>
+                <button type="button" class="seg-btn" data-scale="110">110%</button>
+                <button type="button" class="seg-btn" data-scale="125">125%</button>
+              </div>
+            </div>
+            <div class="field">
+              <span class="label" data-i18n="settings.heroBackground"></span>
+              <div class="hero-bg-row">
+                <input id="sHeroBackground" class="input" spellcheck="false" data-i18n-placeholder="settings.heroBackgroundHint" />
+                <button type="button" class="btn" id="sHeroPick" data-i18n="common.browse">Browse</button>
+                <button type="button" class="btn ghost" id="sHeroClear" data-i18n="common.clear">Clear</button>
+              </div>
+            </div>
+            <label class="field">
+              <span data-i18n="settings.heroBlur"></span>
+              <div class="memory-row">
+                <input type="range" id="sHeroBlur" min="0" max="40" step="1" />
+                <output id="sHeroBlurValue" class="mem-value"></output>
+              </div>
+            </label>
+            <label class="field">
+              <span data-i18n="settings.heroDim"></span>
+              <div class="memory-row">
+                <input type="range" id="sHeroDim" min="0" max="90" step="1" />
+                <output id="sHeroDimValue" class="mem-value"></output>
+              </div>
+            </label>
+            <label class="check"><input type="checkbox" id="sUiSounds" /> <span data-i18n="settings.uiSounds"></span></label>
+            <small class="hint" data-i18n="settings.uiSoundsHint"></small>
           </div>
 
           <div class="card">
@@ -489,10 +594,32 @@
     </div>
   </div>
 
+  
+  <div class="ctx-menu" id="ctxMenu" role="menu" hidden></div>
+
+  <div class="modal-backdrop" id="onboardModal" hidden>
+    <div class="modal narrow" role="dialog" aria-modal="true" aria-labelledby="onboardTitle">
+      <header class="modal-head"><h2 id="onboardTitle" data-i18n="onboard.title"></h2></header>
+      <div class="modal-body">
+        <div class="onboard-steps">
+          <div class="onboard-step active" data-step="1" data-i18n="onboard.step1">Username</div>
+          <div class="onboard-step" data-step="2" data-i18n="onboard.step2">Profile</div>
+          <div class="onboard-step" data-step="3" data-i18n="onboard.step3">Play</div>
+        </div>
+        <div class="onboard-pane" id="onboardPane"></div>
+      </div>
+      <footer class="modal-foot">
+        <button class="btn ghost" id="onboardSkip" data-i18n="onboard.skip"></button>
+        <button class="btn primary" id="onboardNext" data-i18n="onboard.next"></button>
+      </footer>
+    </div>
+  </div>
+
   <div class="toasts" id="toasts" aria-live="assertive" aria-atomic="false"></div>
 
   <script src="icons.js"></script>
   <script src="app.js"></script>
   <script src="mods.js"></script>
+  <script src="ui-pack.js"></script>
 </body>
 </html>
