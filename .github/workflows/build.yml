@@ -75,11 +75,20 @@ jobs:
       - run: npm ci
       - name: Build installers
         shell: bash
-        run: npx electron-builder --config electron-builder.config.js ${{ matrix.args }} --publish never
+        # electron-builder treats empty CSC_* / WIN_CSC_* as a file path and fails.
+        # Unset them when secrets are absent so the build stays unsigned.
+        run: |
+          [ -z "${CSC_LINK:-}" ] && unset CSC_LINK
+          [ -z "${CSC_KEY_PASSWORD:-}" ] && unset CSC_KEY_PASSWORD
+          [ -z "${APPLE_ID:-}" ] && unset APPLE_ID
+          [ -z "${APPLE_APP_SPECIFIC_PASSWORD:-}" ] && unset APPLE_APP_SPECIFIC_PASSWORD
+          [ -z "${APPLE_TEAM_ID:-}" ] && unset APPLE_TEAM_ID
+          [ -z "${WIN_CSC_LINK:-}" ] && unset WIN_CSC_LINK
+          [ -z "${WIN_CSC_KEY_PASSWORD:-}" ] && unset WIN_CSC_KEY_PASSWORD
+          npx electron-builder --config electron-builder.config.js ${{ matrix.args }} --publish never
         env:
           # Auto-update feed = the repository the workflow runs in (forks update from themselves)
           FORJA_UPDATE_REPO: ${{ github.repository }}
-          # Empty when the secrets are not defined → unsigned build
           CSC_LINK: ${{ matrix.name == 'macos' && secrets.MAC_CSC_LINK || '' }}
           CSC_KEY_PASSWORD: ${{ matrix.name == 'macos' && secrets.MAC_CSC_KEY_PASSWORD || '' }}
           APPLE_ID: ${{ matrix.name == 'macos' && secrets.APPLE_ID || '' }}
