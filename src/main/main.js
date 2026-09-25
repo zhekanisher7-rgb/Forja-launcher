@@ -42,6 +42,7 @@ let lastCleanupPlan = null;
 const coded = (code, msg = code) => Object.assign(new Error(msg), { code });
 let win = null;
 let hiddenForGame = false;
+const sessionStarted = new Map(); // profileId -> timestamp
 
 const ICON_PATH = path.join(__dirname, '..', 'assets', 'icon.png');
 
@@ -55,6 +56,7 @@ function serializeError(err) {
 }
 
 function createWindow() {
+  const isMac = process.platform === 'darwin';
   win = new BrowserWindow({
     width: 1200,
     height: 780,
@@ -64,6 +66,9 @@ function createWindow() {
     backgroundColor: '#101217',
     autoHideMenuBar: true,
     show: false,
+    frame: false,
+    titleBarStyle: isMac ? 'hiddenInset' : undefined,
+    trafficLightPosition: isMac ? { x: 14, y: 14 } : undefined,
     icon: fs.existsSync(ICON_PATH) ? nativeImage.createFromPath(ICON_PATH) : undefined,
     webPreferences: {
       preload: path.join(__dirname, '..', 'preload', 'preload.js'),
@@ -74,6 +79,8 @@ function createWindow() {
     },
   });
   win.setMenuBarVisibility(false);
+  win.on('maximize', () => send('window:maximized', true));
+  win.on('unmaximize', () => send('window:maximized', false));
   win.once('ready-to-show', () => win.show());
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   win.webContents.on('will-navigate', (e) => e.preventDefault());
@@ -93,10 +100,21 @@ games.on('state', (s) => {
   send('game:state', payload);
   if (s.state === 'running') {
     profiles.touch(s.profileId);
+    sessionStarted.set(s.profileId, Date.now());
     send('profiles:changed', profiles.list());
     const mode = settings.get().onGameStart;
     if (mode === 'hide' && win) { win.hide(); hiddenForGame = true; }
     if (mode === 'close') setTimeout(() => app.quit(), 1500);
+  }
+  if (s.state === 'exited' || s.state === 'cancelled' || s.state === 'error') {
+    const started = sessionStarted.get(s.profileId);
+    if (started) {
+      const sec = Math.round((Date.now() - started) / 1000);
+      sessionStarted.delete(s.profileId);
+      if (sec > 0) {
+        try { profiles.addPlayTime(s.profileId, sec); send('profiles:changed', profiles.list()); } catch (_) {}
+      }
+    }
   }
   if (s.state === 'exited' && hiddenForGame && games.runningCount() === 0 && win) {
     win.show();
@@ -443,6 +461,83 @@ handle('dialog:pickJava', async () => {
   const r = await dialog.showOpenDialog(win, { properties: ['openFile'], filters });
   return r.canceled ? null : r.filePaths[0];
 });
+
+
+// ---- window controls (frameless) ----
+handle('window:minimize', () => { if (win && !win.isDestroyed()) win.minimize(); return true; });
+handle('window:maximize', () => {
+  if (!win || win.isDestroyed()) return false;
+  if (win.isMaximized()) win.unmaximize();
+  else win.maximize();
+  return win.isMaximized();
+});
+handle('window:close', () => { if (win && !win.isDestroyed()) win.close(); return true; });
+handle('window:isMaximized', () => Boolean(win && !win.isDestroyed() && win.isMaximized()));
+handle('window:platform', () => ({ platform: process.platform, frameless: true }));
+
+handle('dialog:pickImage', async () => {
+  const r = await dialog.showOpenDialog(win, {
+    properties: ['openFile'],
+    filters: [
+      { name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif'] },
+      { name: 'All', extensions: ['*'] },
+    ],
+  });
+  if (r.canceled || !r.filePaths[0]) return null;
+  const filePath = r.filePaths[0];
+  const buf = fs.readFileSync(filePath);
+  if (buf.length > 6 * 1024 * 1024) {
+    const err = new Error('Image too large (max 6 MB)');
+    err.code = 'IMAGE_TOO_LARGE';
+    throw err;
+  }
+  const ext = path.extname(filePath).toLowerCase().replace('.', '') || 'png';
+  const mime = ({ jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', gif: 'image/gif' })[ext] || 'image/png';
+  return { path: filePath, dataUrl: `data:${mime};base64,${buf.toString('base64')}` };
+});
+
+handle('dialog:pickFile', async (filters) => {
+  const r = await dialog.showOpenDialog(win, {
+    properties: ['openFile'],
+    filters: Array.isArray(filters) && filters.length ? filters : [{ name: 'All', extensions: ['*'] }],
+  });
+  return r.canceled ? null : r.filePaths[0];
+});
+
+const newsCache = { at: 0, items: null };
+handle('news:fetch', async ({ force = false } = {}) => {
+  const now = Date.now();
+  if (!force && newsCache.items && now - newsCache.at < 30 * 60 * 1000) return { items: newsCache.items, cached: true };
+  const owner = (config.updates && config.updates.owner) || 'zhekanisher7-rgb';
+  const repo = (config.updates && config.updates.repo) || 'Forja-launcher';
+  const url = `https://api.github.com/repos/${owner}/${repo}/releases?per_page=8`;
+  const res = await fetch(url, {
+    headers: {
+      Accept: 'application/vnd.github+json',
+      'User-Agent': 'Forja-Launcher',
+    },
+  });
+  if (!res.ok) {
+    const err = new Error(`GitHub releases HTTP ${res.status}`);
+    err.code = 'NETWORK';
+    throw err;
+  }
+  const data = await res.json();
+  const items = (Array.isArray(data) ? data : []).map((r) => ({
+    id: r.id,
+    tag: r.tag_name,
+    name: r.name || r.tag_name,
+    body: String(r.body || '').slice(0, 4000),
+    url: r.html_url,
+    publishedAt: r.published_at,
+    prerelease: Boolean(r.prerelease),
+  }));
+  newsCache.at = now;
+  newsCache.items = items;
+  return { items, cached: false };
+});
+
+handle('profiles:addPlayTime', (id, seconds) => profiles.addPlayTime(id, seconds));
 
 // ---- lifecycle ----
 if (!app.requestSingleInstanceLock()) {

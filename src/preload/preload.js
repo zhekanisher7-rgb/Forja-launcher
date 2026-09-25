@@ -60,4 +60,15 @@ contextBridge.exposeInMainWorld('forja', {
   onState: subscribe('game:state'),
   onCrash: subscribe('game:crash'),
   onProfilesChanged: subscribe('profiles:changed'),
+  // window / appearance (0.3.3)
+  windowMinimize: call('window:minimize'),
+  windowMaximize: call('window:maximize'),
+  windowClose: call('window:close'),
+  windowIsMaximized: call('window:isMaximized'),
+  windowPlatform: call('window:platform'),
+  pickImage: call('dialog:pickImage'),
+  pickFile: call('dialog:pickFile'),
+  fetchNews: call('news:fetch'),
+  addPlayTime: call('profiles:addPlayTime'),
+  onWindowMaximized: subscribe('window:maximized'),
 });
