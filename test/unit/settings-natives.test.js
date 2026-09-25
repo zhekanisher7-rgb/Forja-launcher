@@ -158,3 +158,43 @@ test('extractNatives: shared cache + parallel extract, launch dir is a copy not 
   // still a single cache dir
   assert.equal(fs.readdirSync(cacheBase).length, 1);
 });
+
+
+test('settings: appearance / ui-pack fields sanitize and persist', () => {
+  const file = path.join(tmp('forja-ui-'), 'settings.json');
+  const s = new Settings(file);
+  s.update({
+    theme: 'oled',
+    uiScale: 110,
+    heroBackground: 'https://example.com/bg.png',
+    heroBlur: 99,
+    heroDim: -5,
+    uiSounds: 1,
+    onboardingDone: 1,
+    favoriteMods: ['a', 'a', 'b', ''],
+    modSearchHistory: [' sodium ', '', 'iris', 'sodium'],
+  });
+  let d = s.get();
+  assert.equal(d.theme, 'oled');
+  assert.equal(d.uiScale, 110);
+  assert.equal(d.heroBackground, 'https://example.com/bg.png');
+  assert.equal(d.heroBlur, 40);
+  assert.equal(d.heroDim, 0);
+  assert.equal(d.uiSounds, true);
+  assert.equal(d.onboardingDone, true);
+  assert.deepEqual(d.favoriteMods, ['a', 'b']);
+  assert.deepEqual(d.modSearchHistory, ['sodium', 'iris']);
+  s.update({ theme: 'neon', uiScale: 50, heroBlur: 'x', favoriteMods: 'nope', modSearchHistory: null });
+  d = s.get();
+  assert.equal(d.theme, DEFAULTS.theme);
+  assert.equal(d.uiScale, DEFAULTS.uiScale);
+  assert.equal(d.heroBlur, DEFAULTS.heroBlur);
+  assert.deepEqual(d.favoriteMods, []);
+  assert.deepEqual(d.modSearchHistory, []);
+  const filled = sanitize({ schemaVersion: SCHEMA_VERSION });
+  assert.equal(filled.theme, DEFAULTS.theme);
+  assert.equal(filled.uiScale, DEFAULTS.uiScale);
+  assert.equal(filled.onboardingDone, false);
+  assert.equal(filled.uiSounds, false);
+  assert.equal(new Settings(file).get().theme, DEFAULTS.theme);
+});

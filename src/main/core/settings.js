@@ -5,8 +5,11 @@
 const os = require('node:os');
 const { writeJsonAtomicSync, readJsonSafeSync } = require('./atomic');
 
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 const ON_GAME_START = ['keep', 'hide', 'close'];
+
+const THEMES = ['dark', 'oled', 'light'];
+const UI_SCALES = [90, 100, 110, 125];
 
 const DEFAULTS = Object.freeze({
   schemaVersion: SCHEMA_VERSION,
@@ -24,6 +27,15 @@ const DEFAULTS = Object.freeze({
   glowStrength: 70,
   glowDurationSec: 3.5,
   glowAnimations: true,
+  theme: 'dark',
+  uiScale: 100,
+  heroBackground: '',
+  heroBlur: 12,
+  heroDim: 55,
+  uiSounds: false,
+  onboardingDone: false,
+  favoriteMods: [],
+  modSearchHistory: [],
 });
 const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
 
@@ -50,6 +62,9 @@ function migrateSettings(raw) {
     };
     for (const k of ['memoryMaxMb', 'javaPath', 'filters', 'selectedVersion', 'extraJvmArgs', 'resolution']) delete s[k];
     s.schemaVersion = 2;
+  }
+  if (s.schemaVersion < 3) {
+    s.schemaVersion = 3;
   }
   return s;
 }
@@ -80,6 +95,33 @@ function sanitize(s) {
     ? Math.min(8, Math.max(1.5, Math.round(dur * 10) / 10))
     : DEFAULTS.glowDurationSec;
   out.glowAnimations = Boolean(out.glowAnimations);
+  out.theme = THEMES.includes(out.theme) ? out.theme : DEFAULTS.theme;
+  const scale = Number(out.uiScale);
+  out.uiScale = UI_SCALES.includes(scale) ? scale : DEFAULTS.uiScale;
+  out.heroBackground = typeof out.heroBackground === 'string' ? out.heroBackground.slice(0, 2048) : '';
+  const blur = Number(out.heroBlur);
+  out.heroBlur = Number.isFinite(blur) ? Math.min(40, Math.max(0, Math.round(blur))) : DEFAULTS.heroBlur;
+  const dim = Number(out.heroDim);
+  out.heroDim = Number.isFinite(dim) ? Math.min(90, Math.max(0, Math.round(dim))) : DEFAULTS.heroDim;
+  out.uiSounds = Boolean(out.uiSounds);
+  out.onboardingDone = Boolean(out.onboardingDone);
+  out.favoriteMods = Array.isArray(out.favoriteMods)
+    ? [...new Set(out.favoriteMods.map((x) => String(x || '').slice(0, 64)).filter(Boolean))].slice(0, 200)
+    : [];
+  if (Array.isArray(out.modSearchHistory)) {
+    const seen = new Set();
+    const hist = [];
+    for (const x of out.modSearchHistory) {
+      const q = String(x || '').trim().slice(0, 80);
+      if (!q || seen.has(q)) continue;
+      seen.add(q);
+      hist.push(q);
+      if (hist.length >= 20) break;
+    }
+    out.modSearchHistory = hist;
+  } else {
+    out.modSearchHistory = [];
+  }
   return out;
 }
 
@@ -113,4 +155,4 @@ class Settings {
   }
 }
 
-module.exports = { Settings, DEFAULTS, SCHEMA_VERSION, migrateSettings, sanitize, totalMemoryMb, ON_GAME_START };
+module.exports = { Settings, DEFAULTS, SCHEMA_VERSION, migrateSettings, sanitize, totalMemoryMb, ON_GAME_START, THEMES, UI_SCALES };

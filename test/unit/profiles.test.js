@@ -109,3 +109,32 @@ test('normalizeProfile sanitizes input', () => {
   assert.equal(slugify('Мой Мир!'), 'moy-mir');
   assert.equal(slugify('***'), 'profile');
 });
+
+
+test('normalizeProfile: coverImage, pinned, playTimeSec', () => {
+  const p = normalizeProfile({
+    name: 'Covered',
+    versionId: '1.20.1',
+    coverImage: 'https://example.com/c.png',
+    pinned: 1,
+    playTimeSec: 12.6,
+  });
+  assert.equal(p.coverImage, 'https://example.com/c.png');
+  assert.equal(p.pinned, true);
+  assert.equal(p.playTimeSec, 13);
+  const blank = normalizeProfile({ name: 'X', versionId: '1.20.1', coverImage: 12, pinned: 0, playTimeSec: -3 });
+  assert.equal(blank.coverImage, null);
+  assert.equal(blank.pinned, false);
+  assert.equal(blank.playTimeSec, 0);
+});
+
+test('ProfileStore addPlayTime and pin', () => {
+  const store = new ProfileStore(tmpLayout());
+  const a = store.create({ name: 'Timed', versionId: '1.20.1' });
+  store.addPlayTime(a.id, 65);
+  assert.equal(store.get(a.id).playTimeSec, 65);
+  store.setPinned(a.id, true);
+  assert.equal(store.get(a.id).pinned, true);
+  store.update(a.id, { coverImage: 'data:image/png;base64,xxx' });
+  assert.ok(store.get(a.id).coverImage.startsWith('data:image/'));
+});

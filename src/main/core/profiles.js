@@ -84,6 +84,9 @@ function normalizeProfile(p, { requireVersion = false } = {}) {
       : null,
     created: p.created || new Date().toISOString(),
     lastPlayed: p.lastPlayed || null,
+    coverImage: typeof p.coverImage === 'string' ? p.coverImage.slice(0, 2048) : null,
+    pinned: Boolean(p.pinned),
+    playTimeSec: Number.isFinite(Number(p.playTimeSec)) ? Math.max(0, Math.round(Number(p.playTimeSec))) : 0,
   };
 }
 
@@ -167,6 +170,20 @@ class ProfileStore {
     p.lastPlayed = new Date().toISOString();
     this.save();
     return this.get(id);
+  }
+
+  addPlayTime(id, seconds) {
+    const p = this.profiles.find((x) => x.id === id);
+    if (!p) return null;
+    const sec = Math.max(0, Math.round(Number(seconds) || 0));
+    p.playTimeSec = (Number(p.playTimeSec) || 0) + sec;
+    p.lastPlayed = new Date().toISOString();
+    this.save();
+    return this.get(id);
+  }
+
+  setPinned(id, pinned) {
+    return this.update(id, { pinned: Boolean(pinned) });
   }
 
   duplicate(id, { copyFiles = false, name } = {}) {
