@@ -43,6 +43,7 @@ function createLayout(root = getDataDir()) {
     instances: j('instances'),
     cache: j('cache'),
     nativesTmp: j('tmp', 'natives'),
+    nativesCache: j('tmp', 'natives-cache'),
     settingsFile: j('settings.json'),
     versionDir: (id) => j('versions', id),
     versionJson: (id) => j('versions', id, `${id}.json`),

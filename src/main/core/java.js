@@ -14,6 +14,8 @@ const { fetchJson } = require('./http');
 const { downloadAll } = require('./download');
 
 const DEFAULT_COMPONENT = 'jre-legacy';
+const JAVA_RUNTIME_MANIFEST_FILE = 'java_runtime_manifest.json';
+const JAVA_RUNTIME_MANIFEST_TTL_MS = 30 * 60 * 1000; // 30 min
 
 /** Java requirement from version JSON (defaults to Java 8 / jre-legacy) */
 function requiredJava(version) {
@@ -64,18 +66,73 @@ function probeJava(javaPath) {
   });
 }
 
-async function installMojangRuntime({ layout, component, platformKey, signal, onProgress, log, force = false, concurrency = 16 }) {
-  const all = await fetchJson(config.endpoints.javaRuntimeManifest, { signal });
+/**
+ * Fetch Mojang's java runtime manifest with on-disk TTL cache
+ * (same pattern as versions.fetchManifest).
+ */
+async function fetchJavaRuntimeManifest({
+  cacheDir,
+  maxAgeMs = JAVA_RUNTIME_MANIFEST_TTL_MS,
+  signal,
+  force = false,
+  url = config.endpoints.javaRuntimeManifest,
+} = {}) {
+  const cacheFile = cacheDir ? path.join(cacheDir, JAVA_RUNTIME_MANIFEST_FILE) : null;
+  if (cacheFile && !force) {
+    try {
+      const st = await fsp.stat(cacheFile);
+      if (Date.now() - st.mtimeMs < maxAgeMs) {
+        return JSON.parse(await fsp.readFile(cacheFile, 'utf8'));
+      }
+    } catch { /* no cache */ }
+  }
+  try {
+    const manifest = await fetchJson(url, { signal });
+    if (cacheFile) {
+      await fsp.mkdir(cacheDir, { recursive: true });
+      await fsp.writeFile(cacheFile, JSON.stringify(manifest));
+    }
+    return manifest;
+  } catch (err) {
+    if (cacheFile) {
+      try {
+        const cached = JSON.parse(await fsp.readFile(cacheFile, 'utf8'));
+        cached._offline = true;
+        return cached;
+      } catch { /* ignore */ }
+    }
+    throw err;
+  }
+}
+
+async function installMojangRuntime({
+  layout, component, platformKey, signal, onProgress, log, force = false, concurrency = 16,
+}) {
+  const all = await fetchJavaRuntimeManifest({ cacheDir: layout.cache, signal, force });
   const list = all[platformKey] && all[platformKey][component];
   if (!list || list.length === 0) return null;
   const entry = list[0];
   const root = path.join(layout.runtime, component, platformKey);
   const marker = path.join(root, '.forja-runtime.json');
+  const javaPath = path.join(root, javaExecutableRel());
   let markerOk = false;
   try {
     const m = JSON.parse(await fsp.readFile(marker, 'utf8'));
     markerOk = !force && m.sha1 === entry.manifest.sha1;
   } catch { /* none */ }
+
+  // Fast path: marker matches and the java binary is present → no network, no downloadAll.
+  if (markerOk && fs.existsSync(javaPath)) {
+    log(`Java ${entry.version.name} (${component}): уже установлена, пропуск`);
+    return {
+      root,
+      javaPath,
+      version: entry.version.name,
+      source: 'mojang',
+      skipped: true,
+      stats: { downloaded: 0, skipped: 0, bytes: 0, totalBytes: 0, files: 0, ms: 0 },
+    };
+  }
 
   const manifest = await fetchJson(entry.manifest.url, { signal });
   const files = Object.entries(manifest.files);
@@ -87,14 +144,24 @@ async function installMojangRuntime({ layout, component, platformKey, signal, on
       await fsp.mkdir(abs, { recursive: true });
     } else if (f.type === 'file') {
       const raw = f.downloads.raw;
-      // When marker matches, trust sizes only (fast relaunch); otherwise full SHA1.
-      tasks.push({ url: raw.url, path: abs, sha1: markerOk ? undefined : raw.sha1, size: raw.size, executable: !!f.executable });
+      // When marker matches (partial install), trust sizes only; otherwise full SHA1.
+      // force / repair always hashes.
+      tasks.push({
+        url: raw.url,
+        path: abs,
+        sha1: (markerOk && !force) ? undefined : raw.sha1,
+        size: raw.size,
+        executable: !!f.executable,
+      });
     } else if (f.type === 'link') {
       links.push({ abs, target: f.target });
     }
   }
   log(`Java ${entry.version.name} (${component}, ${platformKey}): ${tasks.length} файлов`);
-  const stats = await downloadAll(tasks, { signal, onProgress, concurrency });
+  const stats = await downloadAll(tasks, {
+    signal, onProgress, concurrency,
+    verifyExisting: (markerOk && !force) ? 'size' : true,
+  });
   if (process.platform !== 'win32') {
     for (const l of links) {
       await fsp.mkdir(path.dirname(l.abs), { recursive: true });
@@ -107,7 +174,7 @@ async function installMojangRuntime({ layout, component, platformKey, signal, on
     }
   }
   await fsp.writeFile(marker, JSON.stringify({ sha1: entry.manifest.sha1, version: entry.version.name, component }));
-  return { root, javaPath: path.join(root, javaExecutableRel()), version: entry.version.name, source: 'mojang', stats };
+  return { root, javaPath, version: entry.version.name, source: 'mojang', skipped: false, stats };
 }
 
 function adoptiumOsArch(platform = process.platform, arch = process.arch) {
@@ -154,21 +221,25 @@ async function installAdoptium({ layout, majorVersion, signal, onProgress, log }
   const javaPath = await findJavaBinary(root);
   if (!javaPath) throw new Error('java binary not found in Adoptium archive');
   if (process.platform !== 'win32') await fsp.chmod(javaPath, 0o755);
-  return { root, javaPath, version: assets[0].version.semver, source: 'adoptium' };
+  return { root, javaPath, version: assets[0].version.semver, source: 'adoptium', skipped: false };
 }
 
 /**
  * Ensure a Java runtime suitable for `version` exists.
  * @returns {Promise<{javaPath, version, source, major}>}
  */
-async function ensureJava({ layout, version, signal, onProgress = () => {}, onLog = () => {}, force = false, concurrency = 16 }) {
+async function ensureJava({
+  layout, version, signal, onProgress = () => {}, onLog = () => {}, force = false, concurrency = 16,
+}) {
   const req = requiredJava(version);
   const platformKey = mojangRuntimePlatform();
   const progress = (p) => onProgress({ step: 'java', ...p });
   let result = null;
   if (platformKey && req.component) {
     try {
-      result = await installMojangRuntime({ layout, component: req.component, platformKey, signal, onProgress: progress, log: onLog, force, concurrency });
+      result = await installMojangRuntime({
+        layout, component: req.component, platformKey, signal, onProgress: progress, log: onLog, force, concurrency,
+      });
     } catch (err) {
       if (signal && signal.aborted) throw err;
       onLog(`Mojang runtime недоступен: ${err.message}`);
@@ -176,6 +247,13 @@ async function ensureJava({ layout, version, signal, onProgress = () => {}, onLo
   }
   if (!result) {
     result = await installAdoptium({ layout, majorVersion: req.majorVersion, signal, onProgress: progress, log: onLog });
+  }
+  // Skip probeJava on fast relaunch when marker was OK (binary already exists).
+  // Always probe on install/repair (force) / Adoptium / first install.
+  if (result.skipped && !force) {
+    const major = req.majorVersion;
+    onLog(`Java готова: ${result.javaPath} (major ${major}, cached)`);
+    return { ...result, major, required: req };
   }
   const probe = await probeJava(result.javaPath);
   onLog(`Java готова: ${result.javaPath} (major ${probe.major})`);
@@ -208,4 +286,5 @@ module.exports = {
   ensureJava,
   probeJava,
   adoptiumOsArch,
+  fetchJavaRuntimeManifest,
 };

@@ -9,7 +9,7 @@ const fsp = require('node:fs/promises');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { pipeline } = require('node:stream/promises');
-const { downloadAll } = require('./download');
+const { downloadAll, runPool } = require('./download');
 const { writeJsonAtomicSync, readJsonSafeSync } = require('./atomic');
 const { CONTENT_TYPES, primaryFile, pickBestVersion, loadersFor } = require('./modrinth');
 
@@ -139,29 +139,54 @@ async function removeContent(gameDir, type, file) {
  * @param {object} client ModrinthClient-like ({version, projectVersions})
  * @returns {Promise<{toInstall: object[], missing: object[], incompatible: object[]}>}
  */
-async function resolveDependencies(client, rootVersion, { loaders = [], gameVersion, installedProjectIds = new Set(), signal } = {}) {
+async function resolveDependencies(client, rootVersion, {
+  loaders = [], gameVersion, installedProjectIds = new Set(), signal, concurrency = 5,
+} = {}) {
   const toInstall = [];
   const missing = [];
   const incompatible = [];
   const seen = new Set([rootVersion.project_id, ...installedProjectIds]);
-  const queue = [rootVersion];
+  let queue = [rootVersion];
   while (queue.length) {
-    const v = queue.shift();
-    for (const dep of v.dependencies || []) {
-      if (dep.dependency_type === 'incompatible') {
-        if (dep.project_id && installedProjectIds.has(dep.project_id)) incompatible.push({ of: v.project_id, projectId: dep.project_id });
-        continue;
+    // One BFS wave: collect lookups, fetch in parallel, then enqueue results.
+    const wave = queue;
+    queue = [];
+    const lookups = [];
+    const lookupKeys = new Set();
+    for (const v of wave) {
+      for (const dep of v.dependencies || []) {
+        if (dep.dependency_type === 'incompatible') {
+          if (dep.project_id && installedProjectIds.has(dep.project_id)) {
+            incompatible.push({ of: v.project_id, projectId: dep.project_id });
+          }
+          continue;
+        }
+        if (dep.dependency_type !== 'required') continue;
+        if (dep.project_id && seen.has(dep.project_id)) continue;
+        const key = dep.version_id ? `v:${dep.version_id}` : `p:${dep.project_id}`;
+        if (!dep.version_id && !dep.project_id) continue;
+        if (lookupKeys.has(key)) continue;
+        if (dep.project_id && lookupKeys.has(`p:${dep.project_id}`)) continue;
+        lookupKeys.add(key);
+        if (dep.project_id) lookupKeys.add(`p:${dep.project_id}`);
+        lookups.push({ of: v.project_id, dep });
       }
-      if (dep.dependency_type !== 'required') continue;
-      if (dep.project_id && seen.has(dep.project_id)) continue;
+    }
+    if (!lookups.length) continue;
+    const results = await runPool(lookups, concurrency, async ({ of, dep }) => {
       let depVersion = null;
       if (dep.version_id) depVersion = await client.version(dep.version_id, { signal });
       else if (dep.project_id) {
-        const list = await client.projectVersions(dep.project_id, { loaders, gameVersions: gameVersion ? [gameVersion] : [], signal });
+        const list = await client.projectVersions(dep.project_id, {
+          loaders, gameVersions: gameVersion ? [gameVersion] : [], signal,
+        });
         depVersion = pickBestVersion(list);
       }
+      return { of, dep, depVersion };
+    });
+    for (const { of, dep, depVersion } of results) {
       if (!depVersion) {
-        missing.push({ of: v.project_id, projectId: dep.project_id, versionId: dep.version_id, fileName: dep.file_name });
+        missing.push({ of, projectId: dep.project_id, versionId: dep.version_id, fileName: dep.file_name });
         if (dep.project_id) seen.add(dep.project_id);
         continue;
       }
@@ -232,13 +257,50 @@ async function installProject(client, { gameDir, type, projectId, versionId = nu
   const all = [version, ...deps.toInstall];
   const projects = await client.projects([...new Set(all.map((v) => v.project_id))], { signal });
   const pmap = new Map((projects || []).map((p) => [p.id, p]));
-  const installed = [];
+
+  // Collect download tasks → single downloadAll (parallel), then verify sha512 + meta
+  const planned = [];
   for (const v of all) {
+    const f = primaryFile(v);
+    if (!f) throw new Error(`Version ${v.id} has no files`);
+    const name = safeFileName(f.filename);
+    const dest = path.join(folderFor(gameDir, type), name);
     const prev = byProject.get(v.project_id);
+    planned.push({ v, f, name, dest, prev });
     onLog(`Установка ${pmap.get(v.project_id) ? pmap.get(v.project_id).title : v.name} ${v.version_number}`);
-    const r = await installVersionFile(gameDir, type, v, { project: pmap.get(v.project_id), signal, onProgress, replaceFile: prev ? prev.file : null });
-    installed.push({ projectId: v.project_id, title: pmap.get(v.project_id) ? pmap.get(v.project_id).title : v.name, file: r.file, dependency: v !== version });
   }
+  await downloadAll(
+    planned.map(({ f, dest }) => ({ url: f.url, path: dest, sha1: f.hashes && f.hashes.sha1, size: f.size })),
+    { signal, onProgress },
+  );
+  const installed = [];
+  const meta = loadMeta(gameDir);
+  for (const { v, f, name, dest, prev } of planned) {
+    if (f.hashes && f.hashes.sha512) {
+      const got = await hashFile(dest, 'sha512');
+      if (got !== f.hashes.sha512) {
+        await fsp.rm(dest, { force: true });
+        const err = new Error(`SHA-512 mismatch for ${name}`);
+        err.code = 'CHECKSUM';
+        throw err;
+      }
+    }
+    if (prev && prev.file && prev.file !== name && prev.file !== `${name}${DISABLED}`) {
+      await fsp.rm(path.join(folderFor(gameDir, type), safeFileName(prev.file)), { force: true });
+    }
+    const project = pmap.get(v.project_id);
+    meta.files[f.hashes.sha1] = {
+      checked: true, projectId: v.project_id, versionId: v.id, versionNumber: v.version_number,
+      title: project ? project.title : v.name, slug: project ? project.slug : null, iconUrl: project ? project.icon_url : null,
+    };
+    installed.push({
+      projectId: v.project_id,
+      title: project ? project.title : v.name,
+      file: name,
+      dependency: v !== version,
+    });
+  }
+  saveMeta(gameDir, meta);
   return { installed, missing: deps.missing, incompatible: deps.incompatible };
 }
 

@@ -4,6 +4,14 @@
  * and skipping of already-valid files.
  *
  * Task: { url, path, sha1?, size?, executable? }
+ *
+ * verifyExisting:
+ *   true / 'sha1'  — full size + SHA-1 (repair / force)
+ *   'size'         — trust size match, skip SHA-1 (fast relaunch)
+ *   false          — never skip; always re-download
+ *
+ * Optional on-disk verify stamp cache (path → { size, mtimeMs, sha1 })
+ * skips re-hash when mtime+size still match a previously verified digest.
  */
 const fs = require('node:fs');
 const fsp = require('node:fs/promises');
@@ -27,8 +35,70 @@ async function sha1File(file) {
   return hash.digest('hex');
 }
 
-/** true if file exists and matches size/sha1 (when given) */
-async function isFileValid(file, { sha1, size } = {}) {
+/** Normalize verifyExisting option → { enabled, trustSize }. */
+function parseVerifyMode(verifyExisting) {
+  if (verifyExisting === false) return { enabled: false, trustSize: false };
+  if (verifyExisting === 'size' || verifyExisting === 'trustSize') return { enabled: true, trustSize: true };
+  return { enabled: true, trustSize: false }; // true | 'sha1' | undefined
+}
+
+/**
+ * On-disk stamp cache: absolute path → { size, mtimeMs, sha1 }.
+ * Invalidates when size or mtimeMs diverges from the live file.
+ */
+class VerifyCache {
+  constructor(file) {
+    this.file = file;
+    this.map = new Map();
+    this.dirty = false;
+    this.loaded = false;
+  }
+
+  async load() {
+    if (this.loaded || !this.file) return;
+    this.loaded = true;
+    try {
+      const raw = JSON.parse(await fsp.readFile(this.file, 'utf8'));
+      if (raw && typeof raw === 'object') {
+        for (const [k, v] of Object.entries(raw)) {
+          if (v && typeof v.sha1 === 'string' && typeof v.size === 'number') this.map.set(k, v);
+        }
+      }
+    } catch { /* missing / corrupt → empty */ }
+  }
+
+  get(absPath) {
+    return this.map.get(absPath) || null;
+  }
+
+  set(absPath, entry) {
+    this.map.set(absPath, entry);
+    this.dirty = true;
+  }
+
+  async save() {
+    if (!this.dirty || !this.file) return;
+    await fsp.mkdir(path.dirname(this.file), { recursive: true });
+    const obj = Object.create(null);
+    for (const [k, v] of this.map) obj[k] = v;
+    const tmp = `${this.file}.tmp`;
+    await fsp.writeFile(tmp, JSON.stringify(obj));
+    await fsp.rename(tmp, this.file);
+    this.dirty = false;
+  }
+}
+
+function verifyCachePath(cacheDir) {
+  return cacheDir ? path.join(cacheDir, 'verify-cache.json') : null;
+}
+
+/**
+ * true if file exists and matches size/sha1 (when given).
+ * Options:
+ *   trustSize — if size is given and matches, skip SHA-1
+ *   verifyCache — VerifyCache instance for stamp-based skip
+ */
+async function isFileValid(file, { sha1, size, trustSize = false, verifyCache = null } = {}) {
   let st;
   try {
     st = await fsp.stat(file);
@@ -37,8 +107,27 @@ async function isFileValid(file, { sha1, size } = {}) {
   }
   if (!st.isFile()) return false;
   if (size != null && st.size !== size) return false;
-  if (sha1) return (await sha1File(file)) === sha1.toLowerCase();
-  return true;
+  if (trustSize && size != null) return true;
+  if (!sha1) return true;
+
+  const want = sha1.toLowerCase();
+  const abs = path.resolve(file);
+  if (verifyCache) {
+    const cached = verifyCache.get(abs);
+    if (cached
+      && cached.size === st.size
+      && cached.mtimeMs === st.mtimeMs
+      && cached.sha1 === want) {
+      return true;
+    }
+  }
+  const dig = await sha1File(file);
+  if (verifyCache) {
+    // Re-stat after hash in case something touched the file mid-read
+    const st2 = await fsp.stat(file).catch(() => st);
+    verifyCache.set(abs, { size: st2.size, mtimeMs: st2.mtimeMs, sha1: dig });
+  }
+  return dig === want;
 }
 
 function throwIfAborted(signal) {
@@ -166,6 +255,22 @@ async function ensureDiskSpace(tasks, { margin = 50 * 1024 * 1024 } = {}) {
   }
 }
 
+/** Run async work over items with a fixed concurrency pool. */
+async function runPool(items, concurrency, fn) {
+  if (!items.length) return [];
+  const results = new Array(items.length);
+  let index = 0;
+  const workers = Array.from({ length: Math.max(1, Math.min(concurrency, items.length)) }, async () => {
+    for (;;) {
+      const i = index++;
+      if (i >= items.length) return;
+      results[i] = await fn(items[i], i);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
 /**
  * Download a list of tasks.
  * @returns {Promise<{downloaded:number, skipped:number, bytes:number, totalBytes:number, ms:number}>}
@@ -179,8 +284,17 @@ async function downloadAll(tasks, {
   stallTimeoutMs = 30000,
   verifyExisting = true,
   checkDiskSpace = true,
+  verifyCache = null,
+  trustSize = undefined,
 } = {}) {
   const t0 = Date.now();
+  const mode = parseVerifyMode(verifyExisting);
+  // Explicit trustSize overrides verifyExisting string mode
+  if (trustSize === true) mode.trustSize = true;
+  if (trustSize === false && verifyExisting !== 'size' && verifyExisting !== 'trustSize') mode.trustSize = false;
+
+  if (verifyCache) await verifyCache.load();
+
   // Deduplicate by destination path
   const unique = [...new Map(tasks.map((t) => [path.resolve(t.path), t])).values()];
   const state = {
@@ -225,7 +339,12 @@ async function downloadAll(tasks, {
       throwIfAborted(signal);
       const task = unique[index++];
       state.current = path.basename(task.path);
-      if (verifyExisting && await isFileValid(task.path, task)) {
+      if (mode.enabled && await isFileValid(task.path, {
+        sha1: task.sha1,
+        size: task.size,
+        trustSize: mode.trustSize,
+        verifyCache: mode.trustSize ? null : verifyCache,
+      })) {
         if (task.executable && process.platform !== 'win32') {
           await fsp.chmod(task.path, 0o755).catch(() => {});
         }
@@ -249,6 +368,15 @@ async function downloadAll(tasks, {
               emit();
             },
           });
+          // Stamp freshly downloaded file so a later full-verify can skip rehash
+          if (verifyCache && task.sha1) {
+            try {
+              const st = await fsp.stat(task.path);
+              verifyCache.set(path.resolve(task.path), {
+                size: st.size, mtimeMs: st.mtimeMs, sha1: task.sha1.toLowerCase(),
+              });
+            } catch { /* ignore */ }
+          }
           // correct accounting when size was unknown / differs
           if (task.size != null) state.doneBytes += task.size - counted;
           break;
@@ -289,6 +417,7 @@ async function downloadAll(tasks, {
   }
   state.current = null;
   emit(true);
+  if (verifyCache) await verifyCache.save().catch(() => {});
   return {
     downloaded: state.downloaded,
     skipped: state.skipped,
@@ -299,4 +428,16 @@ async function downloadAll(tasks, {
   };
 }
 
-module.exports = { downloadAll, isFileValid, sha1File, CancelledError, ensureDiskSpace, estimateMissingBytes, freeDiskBytes };
+module.exports = {
+  downloadAll,
+  isFileValid,
+  sha1File,
+  CancelledError,
+  ensureDiskSpace,
+  estimateMissingBytes,
+  freeDiskBytes,
+  VerifyCache,
+  verifyCachePath,
+  parseVerifyMode,
+  runPool,
+};

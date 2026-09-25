@@ -40,7 +40,18 @@ async function dirSize(dir, seen = new Set()) {
   return total;
 }
 
-async function usage(layout) {
+const USAGE_TTL_MS = 45 * 1000;
+let usageCache = { key: null, at: 0, value: null };
+
+function invalidateUsageCache() {
+  usageCache = { key: null, at: 0, value: null };
+}
+
+async function usage(layout, { maxAgeMs = USAGE_TTL_MS, force = false } = {}) {
+  const key = layout && layout.root;
+  if (!force && usageCache.key === key && usageCache.value && Date.now() - usageCache.at < maxAgeMs) {
+    return usageCache.value;
+  }
   const seen = new Set();
   const parts = {
     versions: await dirSize(layout.versions, seen),
@@ -50,6 +61,7 @@ async function usage(layout) {
     instances: await dirSize(layout.instances, seen),
   };
   parts.total = Object.values(parts).reduce((a, b) => a + b, 0);
+  usageCache = { key, at: Date.now(), value: parts };
   return parts;
 }
 
@@ -229,6 +241,7 @@ async function removeEmptyDirs(dir) {
 
 /** Execute a plan produced by planCleanup (only paths inside the data root). */
 async function executeCleanup(layout, plan, { onProgress = () => {} } = {}) {
+  invalidateUsageCache();
   const root = path.resolve(layout.root) + path.sep;
   let freed = 0;
   let removed = 0;
@@ -249,4 +262,4 @@ async function executeCleanup(layout, plan, { onProgress = () => {} } = {}) {
   return { freed, removed };
 }
 
-module.exports = { usage, dirSize, computeReferences, planCleanup, executeCleanup, loadChainSync };
+module.exports = { usage, dirSize, computeReferences, planCleanup, executeCleanup, loadChainSync, invalidateUsageCache, USAGE_TTL_MS };

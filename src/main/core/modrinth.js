@@ -26,11 +26,27 @@ function buildFacets({ type = 'mod', gameVersion, loader, category } = {}) {
 }
 
 class ModrinthClient {
-  constructor({ base = BASE, fetchImpl = globalThis.fetch, cacheMs = 5 * 60 * 1000 } = {}) {
+  constructor({ base = BASE, fetchImpl = globalThis.fetch, cacheMs = 5 * 60 * 1000, cacheMax = 200 } = {}) {
     this.base = base;
     this.fetch = fetchImpl;
     this.cacheMs = cacheMs;
+    this.cacheMax = cacheMax;
     this.cache = new Map();
+  }
+
+  /** Cap the GET cache; evict the entry with the oldest timestamp. */
+  _cacheSet(key, value) {
+    if (this.cache.has(key)) this.cache.delete(key);
+    this.cache.set(key, { t: Date.now(), v: value });
+    while (this.cache.size > this.cacheMax) {
+      let oldestKey = null;
+      let oldestT = Infinity;
+      for (const [k, e] of this.cache) {
+        if (e.t < oldestT) { oldestT = e.t; oldestKey = k; }
+      }
+      if (oldestKey == null) break;
+      this.cache.delete(oldestKey);
+    }
   }
 
   async request(method, pathname, { query, body, signal } = {}) {
@@ -42,7 +58,12 @@ class ModrinthClient {
     const key = method === 'GET' ? url.toString() : null;
     if (key) {
       const hit = this.cache.get(key);
-      if (hit && Date.now() - hit.t < this.cacheMs) return hit.v;
+      if (hit && Date.now() - hit.t < this.cacheMs) {
+        // Refresh LRU order / timestamp
+        this.cache.delete(key);
+        this.cache.set(key, { t: Date.now(), v: hit.v });
+        return hit.v;
+      }
     }
     let lastErr;
     for (let attempt = 0; attempt < 3; attempt++) {
@@ -61,7 +82,7 @@ class ModrinthClient {
         if (res.status === 404) return null;
         if (!res.ok) throw new HttpError(res.status, url.toString());
         const v = await res.json();
-        if (key) this.cache.set(key, { t: Date.now(), v });
+        if (key) this._cacheSet(key, v);
         return v;
       } catch (err) {
         lastErr = err;

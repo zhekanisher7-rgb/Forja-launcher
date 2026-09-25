@@ -16,6 +16,10 @@ function nativesBase(layout) {
   return layout.nativesTmp || path.join(layout.root, 'tmp', 'natives');
 }
 
+function nativesCacheBase(layout) {
+  return layout.nativesCache || path.join(layout.root, 'tmp', 'natives-cache');
+}
+
 async function prepareAndLaunch({
   layout,
   versionId: mcVersionId,
@@ -35,6 +39,7 @@ async function prepareAndLaunch({
   onProgress = () => {},
   onLog = () => {},
   onGameLog = (line) => onLog(line),
+  verifyExisting = 'size', // 'size' for normal Play; repair passes true
 }) {
   const ctx = currentContext();
   const resolveJava = async (version) => {
@@ -56,20 +61,27 @@ async function prepareAndLaunch({
     const res = await ensureLoader({
       layout, loader, mcVersion: mcVersionId, signal, onLog, onProgress, concurrency,
       prepareVanilla: async () => {
-        const v = await installVersion({ layout, versionId: mcVersionId, manifest, gameDir, signal, onProgress, onLog, ctx, concurrency });
+        const v = await installVersion({
+          layout, versionId: mcVersionId, manifest, gameDir, signal, onProgress, onLog, ctx, concurrency,
+          verifyExisting,
+        });
         return { clientJar: v.clientJar, javaPath: await resolveJava(v.version) };
       },
     });
     versionId = res.versionId;
     onLoaderResolved(res);
   }
-  const inst = await installVersion({ layout, versionId, manifest, gameDir, signal, onProgress, onLog, ctx, concurrency });
+  const inst = await installVersion({
+    layout, versionId, manifest, gameDir, signal, onProgress, onLog, ctx, concurrency,
+    verifyExisting,
+  });
 
   const javaPath = await resolveJava(inst.version);
   if (signal && signal.aborted) throw new CancelledError();
 
   // Unique natives dir for this launch (avoids Windows file locks when the
-  // same version runs twice or is repaired while running).
+  // same version runs twice or is repaired while running). Shared extract
+  // cache under tmp/natives-cache is hardlinked/copied into this dir.
   onProgress({ step: 'natives', doneFiles: 0, totalFiles: 1, doneBytes: 0, totalBytes: 0 });
   const nativesDir = await createNativesDir(nativesBase(layout), inst.version.id);
   let cleaned = false;
@@ -79,7 +91,10 @@ async function prepareAndLaunch({
     await cleanupNativesDir(nativesDir).catch(() => {});
   };
   try {
-    const count = await extractNatives(inst.resolvedLibraries, nativesDir);
+    const count = await extractNatives(inst.resolvedLibraries, nativesDir, {
+      cacheBase: nativesCacheBase(layout),
+      versionId: inst.version.id,
+    });
     onLog(`Нативные библиотеки: ${count} файлов → ${nativesDir}`);
 
     onProgress({ step: 'launch', doneFiles: 1, totalFiles: 1, doneBytes: 0, totalBytes: 0 });
@@ -115,4 +130,4 @@ async function prepareAndLaunch({
   }
 }
 
-module.exports = { prepareAndLaunch, nativesBase };
+module.exports = { prepareAndLaunch, nativesBase, nativesCacheBase };

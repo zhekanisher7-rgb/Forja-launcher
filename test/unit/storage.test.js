@@ -99,3 +99,20 @@ test('usage sums the data folders', async () => {
   assert.ok(u.versions > 0 && u.libraries > 0 && u.assets > 0 && u.runtime > 0);
   assert.equal(u.total, u.versions + u.libraries + u.assets + u.runtime + u.instances);
 });
+
+test('usage cache: returns cached value within TTL, force refreshes, invalidate clears', async () => {
+  const { layout } = fixture();
+  storage.invalidateUsageCache();
+  const a = await storage.usage(layout);
+  const b = await storage.usage(layout);
+  assert.equal(a, b, 'same object from cache');
+  // mutate disk then cached value stays until invalidate/force
+  fs.writeFileSync(path.join(layout.versions, 'extra.bin'), 'zzzzzzzzzz');
+  const cached = await storage.usage(layout);
+  assert.equal(cached.versions, a.versions);
+  const forced = await storage.usage(layout, { force: true });
+  assert.ok(forced.versions > a.versions);
+  storage.invalidateUsageCache();
+  const again = await storage.usage(layout);
+  assert.equal(again.versions, forced.versions);
+});

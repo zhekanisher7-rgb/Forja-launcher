@@ -6,6 +6,8 @@ const os = require('node:os');
 const path = require('node:path');
 const { Settings, SCHEMA_VERSION } = require('../../src/main/core/settings');
 const { createNativesDir, cleanupNativesDir, sweepStaleNativesDirs, writeOwner } = require('../../src/main/core/natives');
+const { extractNatives } = require('../../src/main/core/install');
+const AdmZip = require('adm-zip');
 const { parseArgString } = require('../../src/main/core/launch');
 const { classifyError } = require('../../src/main/core/errors');
 
@@ -91,4 +93,31 @@ test('classifyError maps to friendly codes', () => {
   assert.equal(classifyError(Object.assign(new Error('HTTP 404 for u'), { status: 404 })).code, 'notFound');
   assert.equal(classifyError(Object.assign(new Error('c'), { cancelled: true })).code, 'cancelled');
   assert.equal(classifyError(new Error('???')).code, 'unknown');
+});
+
+test('extractNatives: shared cache + parallel extract, launch dir is a copy not the cache', async () => {
+  const base = tmp('forja-natcache-');
+  const cacheBase = path.join(base, 'cache');
+  const jar = path.join(base, 'natives.jar');
+  const zip = new AdmZip();
+  zip.addFile('libfoo.so', Buffer.from('SO_CONTENT'));
+  zip.addFile('META-INF/MANIFEST.MF', Buffer.from('x'));
+  zip.writeZip(jar);
+  const resolved = [{ native: { path: jar }, extract: { exclude: ['META-INF/'] } }];
+  const launch1 = path.join(base, 'launch1');
+  const n1 = await extractNatives(resolved, launch1, { cacheBase, versionId: '1.20.1' });
+  assert.equal(n1, 1);
+  assert.ok(fs.existsSync(path.join(launch1, 'libfoo.so')));
+  const caches = fs.readdirSync(cacheBase);
+  assert.equal(caches.length, 1);
+  const cacheDir = path.join(cacheBase, caches[0]);
+  assert.ok(fs.existsSync(path.join(cacheDir, '.forja-natives-ok')));
+  assert.notEqual(path.resolve(launch1), path.resolve(cacheDir));
+
+  const launch2 = path.join(base, 'launch2');
+  const n2 = await extractNatives(resolved, launch2, { cacheBase, versionId: '1.20.1' });
+  assert.equal(n2, 1);
+  assert.equal(fs.readFileSync(path.join(launch2, 'libfoo.so'), 'utf8'), 'SO_CONTENT');
+  // still a single cache dir
+  assert.equal(fs.readdirSync(cacheBase).length, 1);
 });

@@ -9,7 +9,11 @@ const { ensureJava } = require('./java');
 
 async function repairVersion({ layout, versionId, gameDir, signal, onProgress, onLog, concurrency = 12, skipJava = false }) {
   const t0 = Date.now();
-  const inst = await installVersion({ layout, versionId, gameDir, signal, onProgress, onLog, concurrency });
+  // Full SHA-1 integrity verify (not the size-only fast path used on Play)
+  const inst = await installVersion({
+    layout, versionId, gameDir, signal, onProgress, onLog, concurrency,
+    verifyExisting: true,
+  });
   let java = null;
   if (!skipJava) java = await ensureJava({ layout, version: inst.version, signal, onProgress, onLog, force: true, concurrency });
   const s = inst.stats;
@@ -34,7 +38,10 @@ async function repairProfile({ layout, profile, signal, onProgress, onLog, concu
     const res = await ensureLoader({
       layout, loader: profile.loader, mcVersion: profile.versionId, signal, onLog, onProgress, concurrency,
       prepareVanilla: async () => {
-        const v = await installVersion({ layout, versionId: profile.versionId, gameDir: profile.gameDir, signal, onLog, concurrency });
+        const v = await installVersion({
+          layout, versionId: profile.versionId, gameDir: profile.gameDir, signal, onLog, concurrency,
+          verifyExisting: true,
+        });
         const javaPath = profile.java && profile.java.mode === 'custom' ? profile.java.path
           : (await ensureJava({ layout, version: v.version, signal, onLog, concurrency })).javaPath;
         return { clientJar: v.clientJar, javaPath };

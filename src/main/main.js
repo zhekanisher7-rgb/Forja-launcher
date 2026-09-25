@@ -415,6 +415,7 @@ handle('storage:clean', async () => {
   for (const e of registry.all()) if (deletedVersions.has(e.versionId)) registry.remove(e.key);
   const res = await storage.executeCleanup(layout, plan);
   lastCleanupPlan = null;
+  storage.invalidateUsageCache();
   return res;
 });
 

@@ -7,7 +7,7 @@ const path = require('node:path');
 const AdmZip = require('adm-zip');
 const content = require('../../src/main/core/content');
 const mrpack = require('../../src/main/core/mrpack');
-const { buildFacets, pickBestVersion, loadersFor, USER_AGENT } = require('../../src/main/core/modrinth');
+const { buildFacets, pickBestVersion, loadersFor, USER_AGENT, ModrinthClient } = require('../../src/main/core/modrinth');
 
 const tmp = (p) => fs.mkdtempSync(path.join(os.tmpdir(), p));
 
@@ -134,4 +134,31 @@ test('mrpack overrides: client-overrides win over overrides, traversal rejected'
   assert.equal(mrpack.readPack(file).index.name, 'Test Pack');
   // traversal inside override entries (entry names crafted like a malicious pack)
   assert.throws(() => mrpack.overrideEntries([{ entryName: 'overrides/../../evil.sh', isDirectory: false }]), /unsafe path/);
+});
+
+test('ModrinthClient cache LRU: caps at cacheMax, evicts oldest by timestamp', async () => {
+  let n = 0;
+  const fetchImpl = async (url) => {
+    n++;
+    return { status: 200, ok: true, headers: { get: () => null }, json: async () => ({ id: String(url) }) };
+  };
+  const client = new ModrinthClient({ fetchImpl, cacheMs: 60_000, cacheMax: 3 });
+  await client.request('GET', '/a');
+  await client.request('GET', '/b');
+  await client.request('GET', '/c');
+  assert.equal(client.cache.size, 3);
+  assert.equal(n, 3);
+  // hit /a to refresh its timestamp
+  await client.request('GET', '/a');
+  assert.equal(n, 3, 'cache hit');
+  // insert /d → should evict oldest (/b, since /a was refreshed)
+  await client.request('GET', '/d');
+  assert.equal(client.cache.size, 3);
+  assert.equal(n, 4);
+  const keys = [...client.cache.keys()].join(' ');
+  assert.ok(keys.includes('/a'), 'recently hit /a kept');
+  assert.ok(keys.includes('/d'), '/d present');
+  assert.ok(!keys.includes('/b') || keys.includes('/c'), 'an older entry evicted');
+  // /b should have been evicted (oldest after /a refresh)
+  assert.ok([...client.cache.keys()].every((k) => !k.endsWith('/b')), 'oldest /b evicted');
 });
