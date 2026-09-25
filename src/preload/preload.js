@@ -60,7 +60,7 @@ contextBridge.exposeInMainWorld('forja', {
   onState: subscribe('game:state'),
   onCrash: subscribe('game:crash'),
   onProfilesChanged: subscribe('profiles:changed'),
-  // window / appearance (0.3.3)
+  // window / appearance (0.3.4)
   windowMinimize: call('window:minimize'),
   windowMaximize: call('window:maximize'),
   windowClose: call('window:close'),

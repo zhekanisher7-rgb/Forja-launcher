@@ -41,6 +41,37 @@ html.glow-anim-off .progress-wrap.visible .progress-bar::after {
   animation: none !important;
 }
 
+/* Performance mode (0.3.4): kill infinite glow/shimmer, blur, heavy compositing */
+html.perf-mode,
+html.perf-mode body {
+  scroll-behavior: auto;
+}
+html.perf-mode *,
+html.perf-mode *::before,
+html.perf-mode *::after {
+  animation: none !important;
+  transition: none !important;
+  will-change: auto !important;
+}
+html.perf-mode .hero.has-bg .hero-bg,
+html.perf-mode .hero-bg {
+  filter: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+html.perf-mode .modal-backdrop {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+html.perf-mode .logo,
+html.perf-mode .btn.play,
+html.perf-mode .hero .hero-icon {
+  filter: none !important;
+}
+html.perf-mode .app::before {
+  box-shadow: none !important;
+}
+
 .app {
   display: grid;
   grid-template-columns: 280px 1fr;
@@ -421,7 +452,7 @@ textarea.input { resize: vertical; }
 .update-version { font-weight: 600; margin-bottom: 4px; }
 
 /* ==========================================================================
-   UI pack 0.3.3 — motion, themes, titlebar, news, skeletons, empty states
+   UI pack 0.3.4 — motion, themes, titlebar, news, skeletons, empty states
    ========================================================================== */
 
 /* ---- themes ---- */

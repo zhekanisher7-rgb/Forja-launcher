@@ -604,34 +604,43 @@
     // wrap card creation: MutationObserver polish
     const results = document.getElementById('searchResults');
     if (results) {
+      let polishingResults = false;
       const mo = new MutationObserver(() => {
-        results.querySelectorAll('.result-card').forEach((card) => {
-          if (card.dataset.uiPack) return;
-          card.dataset.uiPack = '1';
-          const id = card.dataset.id || card.dataset.projectId;
-          const desc = card.querySelector('.result-desc');
-          if (desc && !card.querySelector('.desc-pop')) {
-            const pop = document.createElement('div');
-            pop.className = 'desc-pop';
-            pop.textContent = desc.textContent || '';
-            card.appendChild(pop);
-          }
-          if (id && !card.querySelector('.fav-btn') && window.ForjaUiPack) {
-            const fav = document.createElement('button');
-            fav.type = 'button';
-            fav.className = 'fav-btn' + ((window.ForjaUiPack.favoriteMods() || []).includes(id) ? ' on' : '');
-            fav.textContent = '★';
-            fav.title = (window.ForjaApp && window.ForjaApp.t('mods.favorite')) || 'Favorite';
-            fav.addEventListener('click', async (e) => {
-              e.stopPropagation();
-              await window.ForjaUiPack.toggleFavorite(id);
-              fav.classList.toggle('on', (window.ForjaUiPack.favoriteMods() || []).includes(id));
-            });
-            card.appendChild(fav);
-          }
-        });
-        const empty = document.getElementById('searchEmpty');
-        if (empty) empty.classList.toggle('hidden', results.childElementCount > 0 || results.getAttribute('aria-busy') === 'true');
+        if (polishingResults) return;
+        polishingResults = true;
+        mo.disconnect();
+        try {
+          results.querySelectorAll('.result-card').forEach((card) => {
+            if (card.dataset.uiPack) return;
+            card.dataset.uiPack = '1';
+            const id = card.dataset.id || card.dataset.projectId;
+            const desc = card.querySelector('.result-desc');
+            if (desc && !card.querySelector('.desc-pop')) {
+              const pop = document.createElement('div');
+              pop.className = 'desc-pop';
+              pop.textContent = desc.textContent || '';
+              card.appendChild(pop);
+            }
+            if (id && !card.querySelector('.fav-btn') && window.ForjaUiPack) {
+              const fav = document.createElement('button');
+              fav.type = 'button';
+              fav.className = 'fav-btn' + ((window.ForjaUiPack.favoriteMods() || []).includes(id) ? ' on' : '');
+              fav.textContent = '★';
+              fav.title = (window.ForjaApp && window.ForjaApp.t('mods.favorite')) || 'Favorite';
+              fav.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                await window.ForjaUiPack.toggleFavorite(id);
+                fav.classList.toggle('on', (window.ForjaUiPack.favoriteMods() || []).includes(id));
+              });
+              card.appendChild(fav);
+            }
+          });
+          const empty = document.getElementById('searchEmpty');
+          if (empty) empty.classList.toggle('hidden', results.childElementCount > 0 || results.getAttribute('aria-busy') === 'true');
+        } finally {
+          polishingResults = false;
+          if (results.isConnected) mo.observe(results, { childList: true });
+        }
       });
       mo.observe(results, { childList: true });
     }

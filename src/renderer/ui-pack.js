@@ -1,7 +1,8 @@
 'use strict';
 /**
- * UI pack 0.3.3 — wires appearance, titlebar, news, profiles polish,
- * onboarding, auth stub, widgets, sounds. Requires window.ForjaApp.
+ * UI pack 0.3.4 — appearance, titlebar, news, profiles polish,
+ * onboarding, auth stub, widgets, sounds, performance mode.
+ * Requires window.ForjaApp.
  */
 (() => {
   const $ = (id) => document.getElementById(id);
@@ -50,10 +51,24 @@
   whenReady((app) => {
     const { state, t, api, toast, toastError, selected, selectProfile, selectTab, refreshProfiles } = app;
 
+    let enrichPlayIv = null;
+    let widgetsIv = null;
+    let enrichPlayFn = null;
+    let updateWidgetsFn = null;
+    function syncPollIntervals(perf) {
+      if (enrichPlayIv) { clearInterval(enrichPlayIv); enrichPlayIv = null; }
+      if (widgetsIv) { clearInterval(widgetsIv); widgetsIv = null; }
+      if (!enrichPlayFn) return;
+      enrichPlayIv = setInterval(enrichPlayFn, perf ? 2500 : 1000);
+      if (updateWidgetsFn) widgetsIv = setInterval(updateWidgetsFn, perf ? 120000 : 45000);
+      enrichPlayFn();
+    }
+
     async function save(patch) {
       const s = await api('setSettings', patch);
       state.settings = s;
       applyAppearance(s);
+      syncPollIntervals(s.performanceMode !== false);
       return s;
     }
 
@@ -63,6 +78,12 @@
       root.setAttribute('data-theme', s.theme || 'dark');
       root.style.setProperty('--ui-scale', String((Number(s.uiScale) || 100) / 100));
       document.body.style.zoom = ''; // prefer root font scaling via --ui-scale in CSS
+      const perf = s.performanceMode !== false;
+      root.classList.toggle('perf-mode', perf);
+      document.body.classList.toggle('perf-mode', perf);
+      // Perf mode forces animations off; otherwise respect glowAnimations.
+      if (perf) root.classList.add('glow-anim-off');
+      else root.classList.toggle('glow-anim-off', s.glowAnimations === false);
 
       document.querySelectorAll('#sTheme [data-theme]').forEach((b) => {
         const on = b.dataset.theme === (s.theme || 'dark');
@@ -85,22 +106,27 @@
         if ($('sHeroDimValue')) $('sHeroDimValue').textContent = `${$('sHeroDim').value}%`;
       }
       if ($('sUiSounds')) $('sUiSounds').checked = Boolean(s.uiSounds);
+      if ($('sPerformanceMode')) $('sPerformanceMode').checked = perf;
       applyHero(s);
     }
 
     function applyHero(s) {
       const hero = $('hero');
       if (!hero) return;
-      const raw = (s && s.heroBackground) || '';
+      // Cap length so huge base64 never sits in live CSS variables.
+      const raw = String((s && s.heroBackground) || '').slice(0, 2048);
       const ok = raw.startsWith('data:image/') || /^https?:\/\//i.test(raw);
+      const perf = !s || s.performanceMode !== false;
       if (ok) {
         hero.classList.add('has-bg');
         hero.style.setProperty('--hero-image', `url("${raw.replace(/\\/g, '\\\\').replace(/"/g, '%22')}")`);
-        hero.style.setProperty('--hero-blur', `${Number(s.heroBlur) || 0}px`);
+        const blur = perf ? 0 : (Number(s.heroBlur) || 0);
+        hero.style.setProperty('--hero-blur', `${blur}px`);
         hero.style.setProperty('--hero-dim', String((Number(s.heroDim) || 0) / 100));
       } else {
         hero.classList.remove('has-bg');
         hero.style.removeProperty('--hero-image');
+        hero.style.removeProperty('--hero-blur');
       }
     }
 
@@ -168,6 +194,11 @@
         save({ uiSounds: $('sUiSounds').checked })
           .then((s) => playBeep('ok', s.uiSounds))
           .catch(toastError);
+      });
+    }
+    if ($('sPerformanceMode')) {
+      $('sPerformanceMode').addEventListener('change', () => {
+        save({ performanceMode: $('sPerformanceMode').checked }).catch(toastError);
       });
     }
 
@@ -289,71 +320,87 @@
       });
     }
 
+    let polishingProfiles = false;
+    let profileListObserver = null;
+
     function polishProfileList() {
       const list = $('profileList');
-      if (!list) return;
-      const items = [...list.querySelectorAll('.profile-item')];
-      for (const btn of items) {
-        const p = state.profiles.find((x) => x.id === btn.dataset.id);
-        if (!p) continue;
-        const match = !filter
-          || p.name.toLowerCase().includes(filter)
-          || String(p.versionId || '').toLowerCase().includes(filter);
-        if (btn.parentElement) btn.parentElement.classList.toggle('hidden', !match);
+      if (!list || polishingProfiles) return;
+      polishingProfiles = true;
+      if (profileListObserver) profileListObserver.disconnect();
+      try {
+        const items = [...list.querySelectorAll('.profile-item')];
+        for (const btn of items) {
+          const p = state.profiles.find((x) => x.id === btn.dataset.id);
+          if (!p) continue;
+          const match = !filter
+            || p.name.toLowerCase().includes(filter)
+            || String(p.versionId || '').toLowerCase().includes(filter);
+          if (btn.parentElement) btn.parentElement.classList.toggle('hidden', !match);
 
-        let pin = btn.querySelector('.pi-pin');
-        if (!pin) {
-          pin = document.createElement('button');
-          pin.type = 'button';
-          pin.className = 'pi-pin';
-          pin.textContent = '📌';
-          pin.title = t('profiles.pin');
-          pin.addEventListener('click', (e) => {
-            e.stopPropagation();
-            const cur = state.profiles.find((x) => x.id === btn.dataset.id);
-            if (!cur) return;
-            api('updateProfile', cur.id, { pinned: !cur.pinned })
-              .then(() => refreshProfiles && refreshProfiles())
-              .catch(toastError);
-          });
-          btn.appendChild(pin);
-        }
-        pin.classList.toggle('pinned', Boolean(p.pinned));
-
-        if (p.coverImage) {
-          let cover = btn.querySelector('.pi-cover');
-          if (!cover) {
-            cover = document.createElement('img');
-            cover.className = 'pi-cover';
-            cover.alt = '';
-            const icon = btn.querySelector('.hero-icon, .profile-icon, .pi-icon');
-            if (icon) icon.replaceWith(cover);
-            else btn.prepend(cover);
+          let pin = btn.querySelector('.pi-pin');
+          if (!pin) {
+            pin = document.createElement('button');
+            pin.type = 'button';
+            pin.className = 'pi-pin';
+            pin.textContent = '📌';
+            pin.title = t('profiles.pin');
+            pin.addEventListener('click', (e) => {
+              e.stopPropagation();
+              const cur = state.profiles.find((x) => x.id === btn.dataset.id);
+              if (!cur) return;
+              api('updateProfile', cur.id, { pinned: !cur.pinned })
+                .then(() => refreshProfiles && refreshProfiles())
+                .catch(toastError);
+            });
+            btn.appendChild(pin);
           }
-          if (cover.getAttribute('src') !== p.coverImage) cover.src = p.coverImage;
+          pin.classList.toggle('pinned', Boolean(p.pinned));
+
+          if (p.coverImage) {
+            let cover = btn.querySelector('.pi-cover');
+            if (!cover) {
+              cover = document.createElement('img');
+              cover.className = 'pi-cover';
+              cover.alt = '';
+              const icon = btn.querySelector('.hero-icon, .profile-icon, .pi-icon');
+              if (icon) icon.replaceWith(cover);
+              else btn.prepend(cover);
+            }
+            const src = String(p.coverImage).slice(0, 2048);
+            if (cover.getAttribute('src') !== src) cover.src = src;
+          }
+        }
+
+        // Sort: pinned first, then lastPlayed desc
+        const ranked = state.profiles.slice().sort((a, b) => {
+          if (Boolean(a.pinned) !== Boolean(b.pinned)) return a.pinned ? -1 : 1;
+          return (Date.parse(b.lastPlayed || 0) || 0) - (Date.parse(a.lastPlayed || 0) || 0);
+        });
+        for (const p of ranked) {
+          const el = list.querySelector(`.profile-item[data-id="${p.id}"]`);
+          if (el && el.parentElement) list.appendChild(el.parentElement);
+        }
+
+        if ($('profileEmpty')) {
+          const visible = items.filter((b) => b.parentElement && !b.parentElement.classList.contains('hidden'));
+          $('profileEmpty').classList.toggle('hidden', state.profiles.length === 0 ? false : visible.length > 0);
+        }
+        if ($('profileCount')) $('profileCount').textContent = String(state.profiles.length);
+        updateWidgets();
+      } finally {
+        polishingProfiles = false;
+        if (profileListObserver && list.isConnected) {
+          profileListObserver.observe(list, { childList: true });
         }
       }
-
-      // Sort: pinned first, then lastPlayed desc
-      const ranked = state.profiles.slice().sort((a, b) => {
-        if (Boolean(a.pinned) !== Boolean(b.pinned)) return a.pinned ? -1 : 1;
-        return (Date.parse(b.lastPlayed || 0) || 0) - (Date.parse(a.lastPlayed || 0) || 0);
-      });
-      for (const p of ranked) {
-        const el = list.querySelector(`.profile-item[data-id="${p.id}"]`);
-        if (el && el.parentElement) list.appendChild(el.parentElement);
-      }
-
-      if ($('profileEmpty')) {
-        const visible = items.filter((b) => b.parentElement && !b.parentElement.classList.contains('hidden'));
-        $('profileEmpty').classList.toggle('hidden', state.profiles.length === 0 ? false : visible.length > 0);
-      }
-      if ($('profileCount')) $('profileCount').textContent = String(state.profiles.length);
-      updateWidgets();
     }
 
-    const mo = new MutationObserver(() => polishProfileList());
-    if ($('profileList')) mo.observe($('profileList'), { childList: true });
+    profileListObserver = new MutationObserver(() => {
+      if (polishingProfiles) return;
+      polishProfileList();
+    });
+    if ($('profileList')) profileListObserver.observe($('profileList'), { childList: true });
     polishProfileList();
 
     // Context menu
@@ -462,7 +509,6 @@
       } else if (g.state === 'running') $('playLabel').textContent = t('play.running');
       else if (g.state === 'repairing') $('playLabel').textContent = t('play.repairing');
     }
-    setInterval(enrichPlay, 350);
     if ($('playBtn')) $('playBtn').addEventListener('click', () => playBeep('ok', state.settings.uiSounds));
 
     // Widgets
@@ -482,7 +528,15 @@
       }
     }
     updateWidgets();
-    setInterval(updateWidgets, 45000);
+    enrichPlayFn = enrichPlay;
+    updateWidgetsFn = updateWidgets;
+    syncPollIntervals(state.settings.performanceMode !== false);
+
+    window.addEventListener('beforeunload', () => {
+      if (enrichPlayIv) clearInterval(enrichPlayIv);
+      if (widgetsIv) clearInterval(widgetsIv);
+      if (profileListObserver) profileListObserver.disconnect();
+    });
 
     // Onboarding
     let step = 1;

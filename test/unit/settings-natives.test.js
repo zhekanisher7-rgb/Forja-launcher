@@ -22,6 +22,7 @@ test('settings: defaults, persistence, sanitizing', () => {
   assert.equal(s.get().glowStrength, 70);
   assert.equal(s.get().glowDurationSec, 3.5);
   assert.equal(s.get().glowAnimations, true);
+  assert.equal(s.get().performanceMode, true);
   s.update({ language: 'en', concurrency: 99, onGameStart: 'hide', defaultMemoryMb: 3072, showSnapshots: 1, bogus: 1 });
   const r = new Settings(file).get();
   assert.equal(r.language, 'en');
@@ -181,6 +182,7 @@ test('settings: appearance / ui-pack fields sanitize and persist', () => {
   assert.equal(d.heroBlur, 40);
   assert.equal(d.heroDim, 0);
   assert.equal(d.uiSounds, true);
+  assert.equal(d.performanceMode, true); // default ON; not cleared by unrelated update
   assert.equal(d.onboardingDone, true);
   assert.deepEqual(d.favoriteMods, ['a', 'b']);
   assert.deepEqual(d.modSearchHistory, ['sodium', 'iris']);
@@ -196,5 +198,11 @@ test('settings: appearance / ui-pack fields sanitize and persist', () => {
   assert.equal(filled.uiScale, DEFAULTS.uiScale);
   assert.equal(filled.onboardingDone, false);
   assert.equal(filled.uiSounds, false);
+  assert.equal(filled.performanceMode, true);
+  assert.equal(DEFAULTS.performanceMode, true);
+  s.update({ performanceMode: 0 });
+  assert.equal(s.get().performanceMode, false);
+  s.update({ performanceMode: 1 });
+  assert.equal(s.get().performanceMode, true);
   assert.equal(new Settings(file).get().theme, DEFAULTS.theme);
 });

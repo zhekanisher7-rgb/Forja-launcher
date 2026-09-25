@@ -33,6 +33,7 @@ const DEFAULTS = Object.freeze({
   heroBlur: 12,
   heroDim: 55,
   uiSounds: false,
+  performanceMode: true,
   onboardingDone: false,
   favoriteMods: [],
   modSearchHistory: [],
@@ -104,6 +105,7 @@ function sanitize(s) {
   const dim = Number(out.heroDim);
   out.heroDim = Number.isFinite(dim) ? Math.min(90, Math.max(0, Math.round(dim))) : DEFAULTS.heroDim;
   out.uiSounds = Boolean(out.uiSounds);
+  out.performanceMode = Boolean(out.performanceMode);
   out.onboardingDone = Boolean(out.onboardingDone);
   out.favoriteMods = Array.isArray(out.favoriteMods)
     ? [...new Set(out.favoriteMods.map((x) => String(x || '').slice(0, 64)).filter(Boolean))].slice(0, 200)
