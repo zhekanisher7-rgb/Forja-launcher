@@ -1,7 +1,7 @@
 {
   "name": "forja-launcher",
   "productName": "Forja Launcher",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Кроссплатформенный лаунчер Minecraft: Java Edition (загрузчики модов, Modrinth, модпаки, автообновление)",
   "main": "src/main/main.js",
   "private": true,
