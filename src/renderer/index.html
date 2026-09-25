@@ -210,6 +210,45 @@
             </div>
           </div>
 
+
+          <div class="card">
+            <h2 data-i18n="settings.appearance"></h2>
+            <div class="field">
+              <span class="label" data-i18n="settings.glowColor"></span>
+              <div class="glow-color-row">
+                <input type="color" id="sGlowColor" value="#e5534b" aria-label="glow color" />
+                <div class="glow-presets" id="sGlowPresets" role="radiogroup" aria-label="glow presets">
+                  <button type="button" class="glow-preset" data-color="#e5534b" style="background:#e5534b" aria-label="ember"></button>
+                  <button type="button" class="glow-preset" data-color="#ff8a3d" style="background:#ff8a3d" aria-label="orange"></button>
+                  <button type="button" class="glow-preset" data-color="#e6b450" style="background:#e6b450" aria-label="gold"></button>
+                  <button type="button" class="glow-preset" data-color="#3fb96b" style="background:#3fb96b" aria-label="green"></button>
+                  <button type="button" class="glow-preset" data-color="#5b9dff" style="background:#5b9dff" aria-label="blue"></button>
+                  <button type="button" class="glow-preset" data-color="#a78bfa" style="background:#a78bfa" aria-label="violet"></button>
+                  <button type="button" class="glow-preset" data-color="#f472b6" style="background:#f472b6" aria-label="pink"></button>
+                </div>
+              </div>
+            </div>
+            <label class="field">
+              <span data-i18n="settings.glowStrength"></span>
+              <div class="memory-row">
+                <input type="range" id="sGlowStrength" min="0" max="100" step="1" />
+                <output id="sGlowStrengthValue" class="mem-value"></output>
+              </div>
+            </label>
+            <label class="field">
+              <span data-i18n="settings.glowDuration"></span>
+              <div class="memory-row">
+                <input type="range" id="sGlowDuration" min="1.5" max="8" step="0.1" />
+                <output id="sGlowDurationValue" class="mem-value"></output>
+              </div>
+            </label>
+            <label class="check"><input type="checkbox" id="sGlowAnimations" /> <span data-i18n="settings.glowAnimations"></span></label>
+            <small class="hint" data-i18n="settings.glowHint"></small>
+            <div class="input-row" style="margin-top:12px">
+              <button type="button" class="btn small" id="sGlowReset" data-i18n="settings.glowReset"></button>
+            </div>
+          </div>
+
           <div class="card">
             <h2 data-i18n="settings.downloads"></h2>
             <label class="field">

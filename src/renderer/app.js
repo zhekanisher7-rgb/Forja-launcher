@@ -794,6 +794,32 @@
   });
 
   // ------------------------------------------------------------ settings tab
+  const GLOW_DEFAULTS = { glowColor: '#e5534b', glowStrength: 70, glowDurationSec: 3.5, glowAnimations: true };
+
+  function applyGlowTheme(s) {
+    const root = document.documentElement;
+    const color = (s && s.glowColor) || GLOW_DEFAULTS.glowColor;
+    const strengthPct = Math.max(0, Math.min(100, Number(s && s.glowStrength != null ? s.glowStrength : GLOW_DEFAULTS.glowStrength)));
+    const duration = Math.max(1.5, Math.min(8, Number(s && s.glowDurationSec != null ? s.glowDurationSec : GLOW_DEFAULTS.glowDurationSec)));
+    const anim = s && s.glowAnimations !== undefined ? Boolean(s.glowAnimations) : GLOW_DEFAULTS.glowAnimations;
+    root.style.setProperty('--glow-color', color);
+    root.style.setProperty('--glow-strength', String(strengthPct / 100));
+    root.style.setProperty('--glow-duration', `${duration}s`);
+    root.classList.toggle('glow-anim-off', !anim);
+  }
+
+  function syncGlowPresetSelection(color) {
+    const c = String(color || '').toLowerCase();
+    document.querySelectorAll('#sGlowPresets .glow-preset').forEach((btn) => {
+      btn.setAttribute('aria-checked', btn.dataset.color.toLowerCase() === c ? 'true' : 'false');
+    });
+  }
+
+  function formatGlowDuration(sec) {
+    const n = Math.round(Number(sec) * 10) / 10;
+    return `${Number.isInteger(n) ? n.toFixed(0) : n.toFixed(1)} s`;
+  }
+
   function renderSettings() {
     const s = state.settings;
     $('sLanguage').value = s.language;
@@ -809,6 +835,14 @@
     $('sJavaBrowse').disabled = $('sJavaPath').disabled;
     $('sConcurrency').value = String(s.concurrency);
     $('sConcurrencyValue').textContent = String(s.concurrency);
+    $('sGlowColor').value = s.glowColor || GLOW_DEFAULTS.glowColor;
+    syncGlowPresetSelection($('sGlowColor').value);
+    $('sGlowStrength').value = String(s.glowStrength != null ? s.glowStrength : GLOW_DEFAULTS.glowStrength);
+    $('sGlowStrengthValue').textContent = `${$('sGlowStrength').value}%`;
+    $('sGlowDuration').value = String(s.glowDurationSec != null ? s.glowDurationSec : GLOW_DEFAULTS.glowDurationSec);
+    $('sGlowDurationValue').textContent = formatGlowDuration($('sGlowDuration').value);
+    $('sGlowAnimations').checked = s.glowAnimations !== false;
+    applyGlowTheme(s);
     $('sDataDir').value = state.info.dataDir;
     const rs = $('sRepairProfile');
     const cur = rs.value;
@@ -827,6 +861,7 @@
   async function saveSetting(patch) {
     try {
       state.settings = await api('setSettings', patch);
+      applyGlowTheme(state.settings);
       $('savedHint').classList.add('show');
       clearTimeout(savedTimer);
       savedTimer = setTimeout(() => $('savedHint').classList.remove('show'), 1200);
@@ -851,6 +886,57 @@
     $('sConcurrencyValue').textContent = $('sConcurrency').value;
     clearTimeout(concTimer);
     concTimer = setTimeout(() => saveSetting({ concurrency: Number($('sConcurrency').value) }), 300);
+  });
+  let glowTimer;
+  function scheduleGlowSave(patch) {
+    clearTimeout(glowTimer);
+    glowTimer = setTimeout(() => saveSetting(patch), 300);
+  }
+  function previewGlow(patch) {
+    applyGlowTheme({ ...state.settings, ...patch });
+  }
+  $('sGlowColor').addEventListener('input', () => {
+    const glowColor = $('sGlowColor').value;
+    syncGlowPresetSelection(glowColor);
+    previewGlow({ glowColor });
+    scheduleGlowSave({ glowColor });
+  });
+  $('sGlowPresets').addEventListener('click', (e) => {
+    const btn = e.target.closest('.glow-preset');
+    if (!btn) return;
+    const glowColor = btn.dataset.color;
+    $('sGlowColor').value = glowColor;
+    syncGlowPresetSelection(glowColor);
+    previewGlow({ glowColor });
+    saveSetting({ glowColor });
+  });
+  $('sGlowStrength').addEventListener('input', () => {
+    const glowStrength = Number($('sGlowStrength').value);
+    $('sGlowStrengthValue').textContent = `${glowStrength}%`;
+    previewGlow({ glowStrength });
+    scheduleGlowSave({ glowStrength });
+  });
+  $('sGlowDuration').addEventListener('input', () => {
+    const glowDurationSec = Number($('sGlowDuration').value);
+    $('sGlowDurationValue').textContent = formatGlowDuration(glowDurationSec);
+    previewGlow({ glowDurationSec });
+    scheduleGlowSave({ glowDurationSec });
+  });
+  $('sGlowAnimations').addEventListener('change', () => {
+    const glowAnimations = $('sGlowAnimations').checked;
+    previewGlow({ glowAnimations });
+    saveSetting({ glowAnimations });
+  });
+  $('sGlowReset').addEventListener('click', () => {
+    previewGlow(GLOW_DEFAULTS);
+    $('sGlowColor').value = GLOW_DEFAULTS.glowColor;
+    syncGlowPresetSelection(GLOW_DEFAULTS.glowColor);
+    $('sGlowStrength').value = String(GLOW_DEFAULTS.glowStrength);
+    $('sGlowStrengthValue').textContent = `${GLOW_DEFAULTS.glowStrength}%`;
+    $('sGlowDuration').value = String(GLOW_DEFAULTS.glowDurationSec);
+    $('sGlowDurationValue').textContent = formatGlowDuration(GLOW_DEFAULTS.glowDurationSec);
+    $('sGlowAnimations').checked = GLOW_DEFAULTS.glowAnimations;
+    saveSetting({ ...GLOW_DEFAULTS });
   });
   document.querySelectorAll('input[name="sJavaMode"]').forEach((r) => r.addEventListener('change', () => {
     const custom = r.value === 'custom' && r.checked;
@@ -1089,6 +1175,7 @@
     try {
       state.info = await api('appInfo');
       state.settings = await api('getSettings');
+      applyGlowTheme(state.settings);
       $('brandName').textContent = state.info.name;
       document.title = state.info.name;
       const memMax = Math.max(1024, Math.floor((state.info.totalMemoryMb - 512) / 256) * 256);

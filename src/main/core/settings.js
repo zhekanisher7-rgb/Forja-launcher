@@ -20,7 +20,12 @@ const DEFAULTS = Object.freeze({
   showSnapshots: false,
   showOld: false,
   selectedProfileId: null,
+  glowColor: '#e5534b',
+  glowStrength: 70,
+  glowDurationSec: 3.5,
+  glowAnimations: true,
 });
+const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
 
 function totalMemoryMb() {
   return Math.floor(os.totalmem() / 1024 / 1024);
@@ -64,6 +69,17 @@ function sanitize(s) {
   out.defaultJavaPath = out.defaultJavaPath ? String(out.defaultJavaPath) : null;
   out.username = String(out.username || 'Player').slice(0, 16);
   if (out.authType !== 'offline' && out.authType !== 'microsoft') out.authType = 'offline';
+  const color = String(out.glowColor || '');
+  out.glowColor = HEX_COLOR.test(color) ? color.toLowerCase() : DEFAULTS.glowColor;
+  const strength = Number(out.glowStrength);
+  out.glowStrength = Number.isFinite(strength)
+    ? Math.min(100, Math.max(0, Math.round(strength)))
+    : DEFAULTS.glowStrength;
+  const dur = Number(out.glowDurationSec);
+  out.glowDurationSec = Number.isFinite(dur)
+    ? Math.min(8, Math.max(1.5, Math.round(dur * 10) / 10))
+    : DEFAULTS.glowDurationSec;
+  out.glowAnimations = Boolean(out.glowAnimations);
   return out;
 }
 

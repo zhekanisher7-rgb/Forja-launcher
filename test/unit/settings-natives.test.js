@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { Settings, SCHEMA_VERSION } = require('../../src/main/core/settings');
+const { Settings, SCHEMA_VERSION, sanitize, DEFAULTS } = require('../../src/main/core/settings');
 const { createNativesDir, cleanupNativesDir, sweepStaleNativesDirs, writeOwner } = require('../../src/main/core/natives');
 const { extractNatives } = require('../../src/main/core/install');
 const AdmZip = require('adm-zip');
@@ -18,6 +18,10 @@ test('settings: defaults, persistence, sanitizing', () => {
   const s = new Settings(file);
   assert.equal(s.get().language, 'ru');
   assert.equal(s.get().onGameStart, 'keep');
+  assert.equal(s.get().glowColor, '#e5534b');
+  assert.equal(s.get().glowStrength, 70);
+  assert.equal(s.get().glowDurationSec, 3.5);
+  assert.equal(s.get().glowAnimations, true);
   s.update({ language: 'en', concurrency: 99, onGameStart: 'hide', defaultMemoryMb: 3072, showSnapshots: 1, bogus: 1 });
   const r = new Settings(file).get();
   assert.equal(r.language, 'en');
@@ -30,6 +34,39 @@ test('settings: defaults, persistence, sanitizing', () => {
   assert.equal(s.get().onGameStart, 'keep');
   assert.equal(s.get().language, 'ru');
   assert.equal(s.get().concurrency, 1);
+});
+
+
+test('settings: glow fields sanitize and persist', () => {
+  const file = path.join(tmp('forja-glow-'), 'settings.json');
+  const s = new Settings(file);
+  s.update({
+    glowColor: '#5B9DFF',
+    glowStrength: 150,
+    glowDurationSec: 0.5,
+    glowAnimations: 0,
+  });
+  let d = s.get();
+  assert.equal(d.glowColor, '#5b9dff');
+  assert.equal(d.glowStrength, 100);
+  assert.equal(d.glowDurationSec, 1.5);
+  assert.equal(d.glowAnimations, false);
+  s.update({ glowColor: 'red', glowStrength: -10, glowDurationSec: 99, glowAnimations: 1 });
+  d = s.get();
+  assert.equal(d.glowColor, DEFAULTS.glowColor);
+  assert.equal(d.glowStrength, 0);
+  assert.equal(d.glowDurationSec, 8);
+  assert.equal(d.glowAnimations, true);
+  const filled = sanitize({ schemaVersion: SCHEMA_VERSION });
+  assert.equal(filled.glowColor, DEFAULTS.glowColor);
+  assert.equal(filled.glowStrength, DEFAULTS.glowStrength);
+  assert.equal(filled.glowDurationSec, DEFAULTS.glowDurationSec);
+  assert.equal(filled.glowAnimations, true);
+  const r = new Settings(file).get();
+  assert.equal(r.glowColor, DEFAULTS.glowColor);
+  assert.equal(r.glowStrength, 0);
+  assert.equal(r.glowDurationSec, 8);
+  assert.equal(r.glowAnimations, true);
 });
 
 test('settings: migrates phase-1 (v1) file', () => {
