@@ -161,6 +161,7 @@
           <div class="toolbar">
             <input type="search" id="installedFilter" class="input grow" data-i18n-placeholder="mods.filter" />
             <button class="btn" id="checkUpdatesBtn"><span data-ui-icon="refresh"></span> <span data-i18n="mods.checkUpdates"></span></button>
+            <button class="btn" id="checkRepairBtn"><span data-ui-icon="refresh"></span> <span data-i18n="repair.check"></span></button>
             <button class="btn primary hidden" id="updateAllBtn"></button>
             <button class="btn" id="openContentFolderBtn"><span data-ui-icon="folder"></span> <span data-i18n="mods.openFolder"></span></button>
           </div>
@@ -529,6 +530,26 @@
   </div>
 
   <!-- ============ Confirm dialog ============ -->
+  <div class="modal-backdrop" id="repairModal" hidden>
+    <div class="modal wide" role="dialog" aria-modal="true" aria-labelledby="repairTitle">
+      <header class="modal-head">
+        <h2 id="repairTitle" data-i18n="repair.title"></h2>
+        <button class="icon-btn" data-close aria-label="×">✕</button>
+      </header>
+      <div class="modal-body">
+        <p class="muted small" id="repairIntro"></p>
+        <ul class="repair-list" id="repairList"></ul>
+        <p class="muted small" id="repairUnknown"></p>
+        <p class="muted small" data-i18n="repair.backupNote"></p>
+      </div>
+      <footer class="modal-foot">
+        <button class="btn ghost" data-close data-i18n="common.cancel"></button>
+        <button class="btn hidden" id="repairPlayAnyway" data-i18n="repair.playAnyway"></button>
+        <button class="btn primary" id="repairFixAll" data-i18n="repair.fixAll"></button>
+      </footer>
+    </div>
+  </div>
+
   <div class="modal-backdrop" id="confirmModal" hidden>
     <div class="modal narrow" role="alertdialog" aria-modal="true" aria-labelledby="confirmTitle" aria-describedby="confirmText">
       <header class="modal-head"><h2 id="confirmTitle"></h2></header>

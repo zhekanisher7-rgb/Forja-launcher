@@ -375,6 +375,10 @@
     const p = selected();
     if (!p || isBusy(p.id)) return;
     if (!validUsername()) { $('username').focus(); return; }
+    if (window.ForjaMods && window.ForjaMods.preLaunchCheck) {
+      if (!(await window.ForjaMods.preLaunchCheck(p))) return;
+      if (isBusy(p.id)) return;
+    }
     state.games.set(p.id, { state: 'preparing', progress: null });
     renderProfileList();
     renderHero();

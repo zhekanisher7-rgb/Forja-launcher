@@ -18,6 +18,7 @@ const { listLoaderVersions, LoaderRegistry, LOADER_TYPES } = require('./core/loa
 const { ModrinthClient, primaryFile, loadersFor, CONTENT_TYPES } = require('./core/modrinth');
 const content = require('./core/content');
 const { installMrpack } = require('./core/mrpack');
+const modfix = require('./core/modfix');
 const storage = require('./core/storage');
 const { downloadAll } = require('./core/download');
 const os = require('node:os');
@@ -345,6 +346,58 @@ handle('content:update', async (profileId, type, files = null) => {
   } finally {
     contentTasks.delete(profileId);
   }
+});
+
+// ---- Mod pack auto-repair (0.3.5) ----
+// Small result cache keyed by profile + fingerprint (no polling; computed on demand).
+const repairCache = new Map(); // profileId -> { fp, t, result }
+const REPAIR_TTL = 10 * 60 * 1000;
+async function analyzeProfileMods(p, { force = false, signal } = {}) {
+  const entries = await content.listContent(p.gameDir, 'mod');
+  const fp = modfix.fingerprint(entries, loaderOf(p), p.versionId);
+  const hit = repairCache.get(p.id);
+  if (!force && hit && hit.fp === fp && Date.now() - hit.t < REPAIR_TTL) return hit.result;
+  const identified = await content.identifyContent(modrinth, p.gameDir, entries, { signal }).catch(() => entries);
+  const result = await modfix.analyzeMods(modrinth, { entries: identified, loader: loaderOf(p), gameVersion: p.versionId, signal });
+  repairCache.delete(p.id);
+  repairCache.set(p.id, { fp, t: Date.now(), result });
+  while (repairCache.size > 20) repairCache.delete(repairCache.keys().next().value);
+  return result;
+}
+handle('mods:check', async (profileId, { force = false, timeoutMs = 0 } = {}) => {
+  const p = profileOr404(profileId);
+  const controller = new AbortController();
+  let timer = null;
+  if (timeoutMs > 0) timer = setTimeout(() => controller.abort(), Math.min(timeoutMs, 30000));
+  try {
+    return await analyzeProfileMods(p, { force, signal: controller.signal });
+  } catch (err) {
+    if (controller.signal.aborted) return { issues: [], unknown: [], checked: 0, timedOut: true };
+    throw err;
+  } finally { if (timer) clearTimeout(timer); }
+});
+handle('mods:repair', async (profileId, ids = null) => {
+  const p = profileOr404(profileId);
+  if (contentTasks.has(profileId)) throw coded('ALREADY_RUNNING');
+  const controller = new AbortController();
+  contentTasks.set(profileId, controller);
+  try {
+    const { issues } = await analyzeProfileMods(p, { signal: controller.signal });
+    const chosen = Array.isArray(ids) ? issues.filter((i) => ids.includes(i.id)) : issues;
+    const res = await modfix.applyFixes(modrinth, p.gameDir, chosen, {
+      signal: controller.signal, onLog: (line) => games.pushLog(profileId, line, 'launcher'),
+    });
+    repairCache.delete(profileId);
+    return res;
+  } finally {
+    contentTasks.delete(profileId);
+  }
+});
+handle('mods:backups', async (profileId) => modfix.listBackups(profileOr404(profileId).gameDir));
+handle('mods:restoreBackup', async (profileId, name) => {
+  const r = await modfix.restoreBackup(profileOr404(profileId).gameDir, String(name || ''));
+  repairCache.delete(profileId);
+  return r;
 });
 
 // ---- Modpacks (.mrpack) ----

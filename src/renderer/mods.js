@@ -702,5 +702,116 @@
     });
   }
 
-  window.ForjaMods = { show, render };
+
+  // ------------------------------------------------------------ auto-repair (0.3.5)
+  function issueText(is) {
+    const fix = is.fix || {};
+    const desc = {
+      incompatible: t('repair.kind.incompatible', { name: is.title || is.file, v: is.current || '?' }),
+      duplicate: t('repair.kind.duplicate', { name: is.title || is.file, file: is.keepFile || '' }),
+      conflict: t('repair.kind.conflict', { name: is.title || is.file, other: (is.with && is.with.title) || '?' }),
+      missingDep: t('repair.kind.missingDep', { name: is.title || is.projectId, by: is.requiredBy || '?' }),
+    }[is.kind] || is.kind;
+    const fixText = {
+      replace: t('repair.fix.replace', { v: fix.version ? fix.version.version_number : '' }),
+      install: t('repair.fix.install', { v: fix.version ? fix.version.version_number : '' }),
+      remove: t('repair.fix.remove'),
+      disable: t('repair.fix.disable'),
+      none: t('repair.fix.none'),
+    }[fix.action] || '';
+    return { desc, fixText };
+  }
+
+  /**
+   * Show the repair dialog. Resolves to 'fixed' | 'play' | 'cancel'.
+   * withPlay = true adds the "Play anyway" button (pre-launch check).
+   */
+  function repairDialog(p, result, { withPlay = false } = {}) {
+    return new Promise((resolve) => {
+      const modal = $('repairModal');
+      const list = $('repairList');
+      const fixable = result.issues.filter((i) => i.fix && i.fix.action !== 'none');
+      const skipped = new Set();
+      let outcome = 'cancel';
+      let busy = false;
+      $('repairIntro').textContent = result.issues.length
+        ? t('repair.intro', { n: result.issues.length, name: p.name })
+        : t('repair.noIssues');
+      $('repairUnknown').textContent = result.unknown.length
+        ? t('repair.unknown', { n: result.unknown.length, files: result.unknown.map((u) => u.file).slice(0, 8).join(', ') })
+        : '';
+      $('repairPlayAnyway').classList.toggle('hidden', !withPlay);
+      $('repairFixAll').classList.toggle('hidden', !fixable.length);
+      list.replaceChildren();
+      const rows = new Map();
+      const apply = async (ids) => {
+        if (busy || !ids.length) return;
+        busy = true;
+        $('repairFixAll').disabled = true;
+        try {
+          const r = await api('modsRepair', p.id, ids);
+          for (const id of r.applied) { const row = rows.get(id); if (row) { row.classList.add('done'); row.querySelectorAll('button').forEach((b) => { b.disabled = true; }); } }
+          if (r.failed.length) toast({ type: 'warn', title: t('repair.failed'), message: r.failed.map((f) => f.message).join('; '), timeout: 6000 });
+          if (r.applied.length) toast({ type: 'success', title: t('repair.done', { n: r.applied.length }), message: r.backupDir ? t('repair.backupAt', { dir: r.backupDir }) : '', timeout: 6000 });
+          outcome = 'fixed';
+          if (m.type === 'mod' && profile() && profile().id === p.id) loadInstalled();
+        } catch (err) { toastError(err); } finally { busy = false; $('repairFixAll').disabled = false; }
+      };
+      for (const is of result.issues) {
+        const li = document.createElement('li');
+        li.className = 'repair-item';
+        const text = document.createElement('div');
+        text.className = 'grow';
+        const { desc, fixText } = issueText(is);
+        const a = document.createElement('div'); a.textContent = desc;
+        const b = document.createElement('div'); b.className = 'sub'; b.textContent = `→ ${fixText}`;
+        text.append(a, b);
+        li.appendChild(text);
+        if (is.fix && is.fix.action !== 'none') {
+          const ok = document.createElement('button'); ok.className = 'btn small'; ok.textContent = t('repair.apply');
+          ok.addEventListener('click', () => { skipped.delete(is.id); li.classList.remove('skipped'); apply([is.id]); });
+          const sk = document.createElement('button'); sk.className = 'btn ghost small'; sk.textContent = t('repair.skip');
+          sk.addEventListener('click', () => { const on = !skipped.has(is.id); if (on) skipped.add(is.id); else skipped.delete(is.id); li.classList.toggle('skipped', on); });
+          li.append(ok, sk);
+        }
+        rows.set(is.id, li);
+        list.appendChild(li);
+      }
+      $('repairFixAll').onclick = async () => {
+        const ids = fixable.filter((i) => !skipped.has(i.id) && !rows.get(i.id).classList.contains('done')).map((i) => i.id);
+        await apply(ids);
+        if (withPlay) { outcome = 'play'; A.closeModal(modal); }
+      };
+      $('repairPlayAnyway').onclick = () => { outcome = 'play'; A.closeModal(modal); };
+      modal._onClose = () => resolve(outcome);
+      A.openModal(modal, fixable.length ? $('repairFixAll') : null);
+    });
+  }
+
+  /** Fast pre-launch check (cached in main, capped by timeout). Resolves true to continue launching. */
+  let preChecking = false;
+  async function preLaunchCheck(p) {
+    if (!p || !p.loader || !p.loader.type || p.loader.type === 'vanilla') return true;
+    if (preChecking) return false; // ignore double clicks while checking
+    preChecking = true;
+    try {
+      let res;
+      try { res = await api('modsCheck', p.id, { timeoutMs: 4000 }); } catch { return true; }
+      if (!res || !res.issues || !res.issues.length) return true;
+      return (await repairDialog(p, res, { withPlay: true })) === 'play';
+    } finally { preChecking = false; }
+  }
+
+  $('checkRepairBtn').addEventListener('click', async () => {
+    const p = profile();
+    if (!p) return;
+    $('checkRepairBtn').disabled = true;
+    try {
+      const res = await api('modsCheck', p.id, { force: true });
+      if (!res.issues.length && !res.unknown.length) toast({ type: 'success', title: t('repair.title'), message: t('repair.noIssues'), timeout: 3000 });
+      else await repairDialog(p, res);
+    } catch (err) { toastError(err); } finally { $('checkRepairBtn').disabled = false; }
+  });
+
+  window.ForjaMods = { show, render, preLaunchCheck, repairDialog };
 })();
